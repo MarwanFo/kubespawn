@@ -1,0 +1,10 @@
+# Rendering fixture only. These digests do not identify deployable images.
+environmentId: 00000000-0000-0000-0000-000000000001
+api:
+  image:
+    repository: ghcr.io/example/sample-api
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+web:
+  image:
+    repository: ghcr.io/example/sample-web
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

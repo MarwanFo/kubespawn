@@ -1,0 +1,57 @@
+name: kubespawn
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kubespawn}
+      POSTGRES_USER: ${POSTGRES_USER:-kubespawn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/setup.ps1 first}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - platform-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./control-plane
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-kubespawn}
+      DATABASE_USER: ${POSTGRES_USER:-kubespawn}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/setup.ps1 first}
+      KUBESPAWN_DEV_TOKEN: ${KUBESPAWN_DEV_TOKEN:?Run scripts/setup.ps1 first}
+    ports:
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, --spider, -q, 'http://127.0.0.1:8080/actuator/health/readiness']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  portal:
+    build:
+      context: ./portal
+    environment:
+      KUBESPAWN_DEV_TOKEN: ${KUBESPAWN_DEV_TOKEN:?Run scripts/setup.ps1 first}
+    ports:
+      - "127.0.0.1:${PORTAL_PORT:-5173}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  platform-postgres:
+

@@ -1,0 +1,38 @@
+# This chart cannot deploy until the controller provides verified digests and environment identity.
+environmentId: ''
+serviceAccountName: preview-workload
+imagePullSecrets: []
+
+api:
+  image:
+    repository: ''
+    digest: ''
+  port: 8080
+  healthPath: /health/ready
+  livenessPath: /health/live
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+      ephemeral-storage: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 256Mi
+
+web:
+  image:
+    repository: ''
+    digest: ''
+  port: 8080
+  healthPath: /
+  livenessPath: /
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+      ephemeral-storage: 256Mi

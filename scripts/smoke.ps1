@@ -1,0 +1,25 @@
+#requires -Version 7.0
+. "$PSScriptRoot/common.ps1"
+Import-LocalEnvironment
+$taskApi = "http://127.0.0.1:$env:API_PORT"
+$taskReady = $false
+for ($taskAttempt = 0; $taskAttempt -lt 60; $taskAttempt++) {
+    try {
+        $taskHealth = Invoke-RestMethod "$taskApi/actuator/health/readiness" -TimeoutSec 3
+        if ($taskHealth.status -eq 'UP') { $taskReady = $true; break }
+    } catch { }
+    Start-Sleep -Seconds 2
+}
+if (-not $taskReady) { throw 'API readiness did not become healthy. Check docker compose logs api.' }
+$taskHeaders = @{ Authorization = "Bearer $env:KUBESPAWN_DEV_TOKEN" }
+$taskPlatform = Invoke-RestMethod "$taskApi/api/v1/platform" -Headers $taskHeaders
+if ($taskPlatform.controllerEnabled) { throw 'Foundation unexpectedly reports a provisioning controller.' }
+$taskInventory = Invoke-RestMethod "$taskApi/api/v1/environments" -Headers $taskHeaders
+$taskUnauthorized = Invoke-WebRequest "$taskApi/api/v1/environments" -SkipHttpErrorCheck
+if ($taskUnauthorized.StatusCode -ne 401) { throw 'Unauthenticated API request was not rejected.' }
+$taskPortal = "http://127.0.0.1:$env:PORTAL_PORT"
+$taskHtml = Invoke-WebRequest $taskPortal
+if ($taskHtml.Content -notmatch 'KubeSpawn') { throw 'Portal HTML was not served.' }
+$taskProxy = Invoke-RestMethod "$taskPortal/api/v1/platform"
+if ($taskProxy.name -ne 'KubeSpawn') { throw 'Portal-to-API proxy is not working.' }
+Write-Host "Smoke checks passed: database readiness, bearer authentication, inventory ($($taskInventory.items.Count)), portal, and API proxy."
