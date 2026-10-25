@@ -51,6 +51,7 @@ class PlatformSecurityTest {
     @Test
     void foundationDoesNotClaimToProvisionEnvironments() throws Exception {
         mvc.perform(get("/api/v1/platform").header("Authorization", TOKEN))
-            .andExpect(status().isOk()).andExpect(jsonPath("$.controllerEnabled").value(false));
+            .andExpect(status().isOk()).andExpect(jsonPath("$.controllerEnabled").value(false))
+            .andExpect(jsonPath("$.workerEnabled").value(true));
     }
 }

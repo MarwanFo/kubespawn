@@ -1,6 +1,7 @@
 package io.kubespawn.platform.lifecycle;
 
 import io.kubespawn.platform.api.EnvironmentSummary;
+import io.kubespawn.platform.worker.JobStore;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -22,12 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class LifecycleService {
     private final JdbcTemplate jdbc;
+    private final JobStore jobs;
 
-    public LifecycleService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public LifecycleService(JdbcTemplate jdbc, JobStore jobs) { this.jdbc = jdbc; this.jobs = jobs; }
 
     public record Mutation(EnvironmentSummary environment, UUID operationId) {}
-    public record Operation(UUID id, UUID environmentId, String type, String state, long intentVersion,
-            int attempts, Instant createdAt) {}
     public record AuditEvent(UUID id, String action, String actor, String requestId, Instant createdAt) {}
     private record Claim(String fingerprint, UUID environmentId, UUID operationId) {}
     private record Owned(EnvironmentSummary summary, UUID sourceId, String owner) {}
@@ -124,15 +124,7 @@ public class LifecycleService {
     }
 
     @Transactional(readOnly = true)
-    public Operation operation(UUID id, String actor) {
-        return jdbc.query("""
-            SELECT j.* FROM jobs j JOIN environments e ON e.id=j.environment_id
-            WHERE j.id=? AND e.owner_actor=?
-            """, (rs, row) -> new Operation(rs.getObject("id", UUID.class), rs.getObject("environment_id", UUID.class),
-                rs.getString("job_type"), rs.getString("state"), rs.getLong("intent_version"),
-                rs.getInt("attempts"), rs.getTimestamp("created_at").toInstant()), id, actor)
-            .stream().findFirst().orElseThrow(() -> failure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Operation not found."));
-    }
+    public JobStore.Operation operation(UUID id, String actor) { return jobs.operation(id, actor); }
 
     @Transactional(readOnly = true)
     public List<AuditEvent> audit(UUID id, String actor) {

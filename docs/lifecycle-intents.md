@@ -18,7 +18,7 @@ Expiry extensions must be later than the current expiry and no later than 72 hou
 
 The local expiry scanner locks up to 50 due ACTIVE rows with `FOR UPDATE SKIP LOCKED` every 30 seconds. It sets ABSENT/TERMINATING, source suppression TTL_EXPIRED, and durable teardown/audit/outbox records. Multiple API instances cannot reap the same intent twice. Extension and deletion/expiry are serialized by the same environment row lock. Scheduler tests disable automatic execution and invoke the batch explicitly.
 
-Database transactions contain database work only. The future worker must implement its own lease/fencing and environment serialization around external effects; these transaction row locks must not be held while calling Kubernetes, registries, or GitHub.
+Database transactions contain database work only. The [durable worker](job-worker.md) claims jobs under renewable job/environment leases and fences result persistence against both tokens and the latest intent. Processor calls occur outside those transactions. Future external adapters must add provider-side idempotency and fencing; these transaction row locks must not be held while calling Kubernetes, registries, or GitHub.
 
 ## Local access and portal behavior
 

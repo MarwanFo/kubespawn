@@ -83,6 +83,14 @@ footer { margin-top: 32px; display: flex; justify-content: space-between; gap: 1
 .environment-meta span { display: flex; align-items: center; gap: 5px; overflow-wrap: anywhere; }
 .environment-explanation { color: #7b8f82; font-size: 11px; line-height: 1.7; margin: 7px 0 14px; }
 .environment-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.operation-progress { border: 1px solid #e5ebe5; background: #f7faf6; border-radius: 7px; padding: 13px 15px; margin: 0 0 16px; }
+.operation-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.operation-heading strong { font-size: 11px; color: #536f59; text-transform: capitalize; }
+.operation-heading span { font-size: 9px; color: #8a9a8d; }
+.operation-progress p { font-size: 11px; color: #6f8473; line-height: 1.7; margin: 7px 0; }
+.operation-progress small { display: block; font-size: 9px; color: #86988a; line-height: 1.8; }
+.operation-failed { border-color: #ead8ca; background: #fff7ef; }
+.operation-failed .operation-heading strong { color: #9b6344; }
 .small-button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #dce7df; border-radius: 5px; background: #fff; color: #55725f; padding: 7px 10px; font-size: 10px; cursor: pointer; }
 button:disabled { opacity: .6; cursor: not-allowed; }
 .danger-button { color: #9d6356; border-color: #eadbd6; }

@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon bootJar
 FROM eclipse-temurin:21-jre-alpine@sha256:b48e02e0ea88d7bfb305335df94923bdef394905f4147dccd52e873cf17b1088
 RUN addgroup -S kubespawn && adduser -S kubespawn -G kubespawn
 WORKDIR /app
-COPY --from=build --chown=kubespawn:kubespawn /workspace/build/libs/control-plane-0.2.0-SNAPSHOT.jar app.jar
+COPY --from=build --chown=kubespawn:kubespawn /workspace/build/libs/control-plane-0.3.0-SNAPSHOT.jar app.jar
 USER kubespawn
 EXPOSE 8080
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/app.jar"]

@@ -2,7 +2,7 @@
 
 An internal developer platform for disposable pull-request environments.
 
-**Current milestone: manual lifecycle intents.** The portal can create an environment request, extend its expiry, request deletion, and show audit activity. Requests are stored transactionally with durable jobs and outbox events. They start in `WAITING_BUILD`; Kubernetes provisioning, verified builds, Argo CD installation, and cloud deployment are subsequent milestones. Deletion remains `TERMINATING` until a future worker verifies cleanup.
+**Current milestone: durable lifecycle worker.** The portal accepts create/extend/delete intents and shows operation progress and audit activity. A local worker claims durable jobs, renews leases, recovers interrupted work, backs off errors, and rejects results for superseded intents. Trusted build and cleanup integrations remain gated: requests stay `WAITING_BUILD`, and deletion stays `TERMINATING` until resource removal can be verified. No Kubernetes workloads are deployed yet.
 
 ## Start locally on Windows
 
@@ -81,13 +81,16 @@ Gradle Wrapper 9.8.2 is included with its distribution SHA-256. npm and Gradle d
 | `PATCH /api/v1/environments/{id}/expiry` | Local bearer, owner | Extend absolute expiry; requires quoted `If-Match` |
 | `DELETE /api/v1/environments/{id}` | Local bearer, owner | Request absence and queue teardown; requires quoted `If-Match` |
 | `GET /api/v1/environments/{id}/audit` | Local bearer, owner | Latest 50 audit events |
-| `GET /api/v1/operations/{id}` | Local bearer, owner | Durable operation state; jobs remain pending without a worker |
+| `GET /api/v1/operations/{id}` | Local bearer, owner | Operation state, reason, attempts, failures, and timing |
+| `GET /api/v1/operations` | Local bearer, owner | Latest operation per environment, maximum 100 |
 | `GET /actuator/prometheus` | Bearer | Micrometer metrics; restrict access further before deployment |
 
 Mutations return `202 Accepted` with an environment snapshot and `operationId`. They record intent rather than claiming provisioning or removal. Initial TTL is 1–24 hours; extensions are bounded by 72 hours from creation. The local expiry scanner runs every 30 seconds and requests absence for expired records. It never claims to delete Kubernetes resources. Stale versions return 412, missing version preconditions return 428, and deleted/expired requests cannot be reactivated. See [the lifecycle contract](docs/lifecycle-intents.md).
+
+The local worker polls every 2 seconds. Expected prerequisite waits use `WAITING` and are checked again after 30 seconds; processing failures use bounded retries, and obsolete intents become `SUPERSEDED`. `workerEnabled` reports the configured scheduler separately from `controllerEnabled`, which remains false. It is not a worker liveness probe. See [worker behavior and recovery](docs/job-worker.md).
 
 The local profile accepts the generated development token and represents one trusted local developer. The new lifecycle detail/mutation routes are available only in that profile. Outside it, only the earlier inventory/platform reads are supported; the API requires an OIDC issuer (`OIDC_ISSUER_URI`) and the `environments:read` token scope. JWT read/write scopes cannot enable local mutations. Production audience validation, repository/team authorization, browser OIDC login, private preview authorization, and tenancy enforcement remain required before deployment. The default profile never falls back to the development token.
 
 The Compose portal is a **local development proxy** that inserts that token. Browser mutations must have an Origin matching the proxy's forwarded Host; the local Vite and Compose proxies preserve it. Do not expose or reuse this proxy configuration as a production deployment. Production browser authentication needs its own implementation. The local stack has no Kubernetes credentials and cannot create a preview cluster.
 
-See [implementation status](docs/implementation-status.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).
+See [implementation status](docs/implementation-status.md), [worker behavior](docs/job-worker.md), [worker verification](docs/worker-verification.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).

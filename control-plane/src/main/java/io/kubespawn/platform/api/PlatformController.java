@@ -25,10 +25,11 @@ public class PlatformController {
     public PlatformStatus platform() {
         boolean local = Arrays.asList(configuration.getActiveProfiles()).contains("local");
         var capabilities = local
-            ? List.of("environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "health-probes", "prometheus")
+            ? List.of("environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "job-processing", "health-probes", "prometheus")
             : List.of("environment-inventory", "health-probes", "prometheus");
-        return new PlatformStatus("KubeSpawn", "0.2.0", local ? "local" : "oidc", false,
-            capabilities, "Verified builds and the environment lifecycle worker");
+        boolean worker = local && configuration.getProperty("kubespawn.worker.enabled", Boolean.class, true);
+        return new PlatformStatus("KubeSpawn", "0.3.0", local ? "local" : "oidc", false, worker,
+            capabilities, "Trusted build verification and Kubernetes integration");
     }
 
     @GetMapping("/environments")
@@ -37,6 +38,6 @@ public class PlatformController {
     }
 
     public record PlatformStatus(String name, String version, String mode, boolean controllerEnabled,
-            List<String> capabilities, String nextMilestone) {}
+            boolean workerEnabled, List<String> capabilities, String nextMilestone) {}
     public record EnvironmentPage(List<EnvironmentSummary> items) {}
 }

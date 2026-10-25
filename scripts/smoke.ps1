@@ -14,6 +14,8 @@ if (-not $taskReady) { throw 'API readiness did not become healthy. Check docker
 $taskHeaders = @{ Authorization = "Bearer $env:KUBESPAWN_DEV_TOKEN" }
 $taskPlatform = Invoke-RestMethod "$taskApi/api/v1/platform" -Headers $taskHeaders
 if ($taskPlatform.controllerEnabled) { throw 'Foundation unexpectedly reports a provisioning controller.' }
+if ($taskPlatform.capabilities -notcontains 'job-processing') { throw 'Local API does not expose worker progress.' }
+$taskOperations = Invoke-RestMethod "$taskApi/api/v1/operations" -Headers $taskHeaders
 $taskInventory = Invoke-RestMethod "$taskApi/api/v1/environments" -Headers $taskHeaders
 $taskUnauthorized = Invoke-WebRequest "$taskApi/api/v1/environments" -SkipHttpErrorCheck
 if ($taskUnauthorized.StatusCode -ne 401) { throw 'Unauthenticated API request was not rejected.' }
@@ -22,4 +24,4 @@ $taskHtml = Invoke-WebRequest $taskPortal
 if ($taskHtml.Content -notmatch 'KubeSpawn') { throw 'Portal HTML was not served.' }
 $taskProxy = Invoke-RestMethod "$taskPortal/api/v1/platform"
 if ($taskProxy.name -ne 'KubeSpawn') { throw 'Portal-to-API proxy is not working.' }
-Write-Host "Smoke checks passed: database readiness, bearer authentication, inventory ($($taskInventory.items.Count)), portal, and API proxy."
+Write-Host "Smoke checks passed: database readiness, bearer authentication, inventory ($($taskInventory.items.Count)), operation progress ($(@($taskOperations).Count)), portal, and API proxy."

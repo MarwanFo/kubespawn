@@ -3,6 +3,7 @@ export interface PlatformStatus {
   version: string;
   mode: string;
   controllerEnabled: boolean;
+  workerEnabled: boolean;
   capabilities: string[];
   nextMilestone: string;
 }
@@ -26,6 +27,23 @@ export interface EnvironmentPage { items: Environment[] }
 export interface CreateEnvironment { repository: string; ref: string; ttlHours: number }
 export interface MutationResult { environment: Environment; operationId: string }
 export interface AuditEvent { id: string; action: string; actor: string; requestId: string; createdAt: string }
+export interface Operation {
+  id: string;
+  environmentId: string;
+  type: string;
+  state: 'PENDING' | 'RUNNING' | 'WAITING' | 'COMPLETE' | 'FAILED' | 'SUPERSEDED';
+  intentVersion: number;
+  attempts: number;
+  failureCount: number;
+  reason: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  availableAt: string;
+  leaseExpiresAt: string | null;
+  lastHeartbeatAt: string | null;
+  finishedAt: string | null;
+}
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); }

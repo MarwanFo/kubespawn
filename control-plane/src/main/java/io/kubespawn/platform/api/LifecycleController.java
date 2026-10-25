@@ -3,6 +3,7 @@ package io.kubespawn.platform.api;
 import io.kubespawn.platform.lifecycle.CreateEnvironmentRequest;
 import io.kubespawn.platform.lifecycle.LifecycleException;
 import io.kubespawn.platform.lifecycle.LifecycleService;
+import io.kubespawn.platform.worker.JobStore;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -29,8 +30,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1")
 public class LifecycleController {
     private final LifecycleService lifecycle;
+    private final JobStore jobs;
 
-    public LifecycleController(LifecycleService lifecycle) { this.lifecycle = lifecycle; }
+    public LifecycleController(LifecycleService lifecycle, JobStore jobs) { this.lifecycle = lifecycle; this.jobs = jobs; }
 
     @PostMapping("/environments")
     public ResponseEntity<LifecycleService.Mutation> create(@Valid @RequestBody CreateEnvironmentRequest body,
@@ -65,9 +67,12 @@ public class LifecycleController {
     }
 
     @GetMapping("/operations/{id}")
-    public LifecycleService.Operation operation(@PathVariable UUID id, Principal actor) {
+    public JobStore.Operation operation(@PathVariable UUID id, Principal actor) {
         return lifecycle.operation(id, actor.getName());
     }
+
+    @GetMapping("/operations")
+    public List<JobStore.Operation> operations(Principal actor) { return jobs.latestOperations(actor.getName()); }
 
     public record ExpiryRequest(@NotNull Instant expiresAt) {}
 

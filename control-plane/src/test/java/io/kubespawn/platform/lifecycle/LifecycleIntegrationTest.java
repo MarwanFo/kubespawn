@@ -37,7 +37,7 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 @SpringBootTest(properties = {
     "spring.profiles.active=local", "KUBESPAWN_DEV_TOKEN=integration-test-token-with-at-least-32-characters",
-    "kubespawn.lifecycle.expiry.enabled=false"
+    "kubespawn.lifecycle.expiry.enabled=false", "kubespawn.worker.enabled=false"
 })
 @AutoConfigureMockMvc
 class LifecycleIntegrationTest {
