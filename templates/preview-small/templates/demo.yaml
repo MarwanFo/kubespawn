@@ -13,6 +13,7 @@ data:
     events { worker_connections 256; }
     http {
       include /etc/nginx/mime.types;
+      map_hash_bucket_size 128;
       client_body_temp_path /tmp/client_temp;
       proxy_temp_path /tmp/proxy_temp;
       fastcgi_temp_path /tmp/fastcgi_temp;
