@@ -31,6 +31,7 @@ import tools.jackson.databind.ObjectMapper;
 public class KubernetesProvisioner implements ProvisioningGateway {
     static final String OWNER="kubespawn.io/environment-id";
     static final String FENCE="kubespawn.io/fencing-token";
+    static final String APPLICATION_SPEC_HASH="kubespawn.io/application-spec-sha256";
     private final ProvisioningSettings settings;
     private final ObjectMapper json;
     private final KubernetesClient client;
@@ -47,9 +48,13 @@ public class KubernetesProvisioner implements ProvisioningGateway {
         } catch (Exception failure) { throw new IllegalArgumentException("Cannot load the local controller kubeconfig."); }
     }
 
-    @Override public Observation reconcile(Plan plan,JobLease lease,BooleanSupplier current) {
+    @Override public Observation validate(Plan plan) {
         if (!templateHash(settings.chart).equals(plan.templateHash())) return waitFor("TEMPLATE_APPROVAL_REQUIRED","Enroll the current workload chart before provisioning.");
         if (!plan.repository().equals("marwanfo/kubespawn")) return waitFor("APPLICATION_CONTRACT_REQUIRED","This local demo supports only the reviewed KubeSpawn repository.");
+        return null;
+    }
+    @Override public Observation reconcile(Plan plan,JobLease lease,BooleanSupplier current) {
+        var blocked=validate(plan); if (blocked!=null) return blocked;
         guard(current);
         baseline(plan,lease,current);
         String application=application(lease);
@@ -59,7 +64,7 @@ public class KubernetesProvisioner implements ProvisioningGateway {
                 "clusterResourceWhitelist",List.of(),"clusterResourceBlacklist",List.of(m("group","*","kind","*")),
                 "namespaceResourceWhitelist",List.of(m("group","apps","kind","Deployment"),m("group","apps","kind","StatefulSet"),
                     m("group","","kind","Service"),m("group","","kind","ConfigMap"),m("group","","kind","PersistentVolumeClaim"),m("group","batch","kind","Job")))),lease,current);
-        registerNamespace(plan.namespace(),current);
+        registerNamespace(plan.namespace(),true,current);
         Map<String,Object> values=m("environmentId",plan.environmentId().toString(),"runtimeProfile","kubespawn-demo",
             "api",m("image",m("repository",plan.apiImage(),"digest",plan.apiDigest()),"healthPath","/actuator/health/readiness","livenessPath","/actuator/health/liveness"),
             "web",m("image",m("repository",plan.webImage(),"digest",plan.webDigest())));
@@ -69,9 +74,18 @@ public class KubernetesProvisioner implements ProvisioningGateway {
                 "helm",m("releaseName","preview","valuesObject",values)),
             "syncPolicy",m("automated",m("prune",true,"selfHeal",true),"syncOptions",List.of("FailOnSharedResource=true"))));
         metadata(app).put("finalizers",List.of("resources-finalizer.argocd.argoproj.io"));
+        String specHash=sha256(app.get("spec"));
+        @SuppressWarnings("unchecked") var appAnnotations=(Map<String,String>)metadata(app).get("annotations");
+        appAnnotations.put(APPLICATION_SPEC_HASH,specHash);
+        var before=get("argoproj.io/v1alpha1","Application",application,"argocd");
+        boolean beforeIsDesired=before!=null && before.getMetadata().getAnnotations()!=null
+            && specHash.equals(before.getMetadata().getAnnotations().get(APPLICATION_SPEC_HASH));
+        var beforeStatus=beforeIsDesired ? status(before) : json.createObjectNode();
         put(app,lease,current);
-        var observed=get("argoproj.io/v1alpha1","Application",application,"argocd");
-        var status=observed==null ? json.createObjectNode() : json.readTree(Serialization.asJson(observed)).path("status");
+        // Updating the fencing annotation can briefly hide CRD status. A status from the exact
+        // desired spec is still authoritative; otherwise read the newly written object.
+        var observed=beforeIsDesired ? before : get("argoproj.io/v1alpha1","Application",application,"argocd");
+        var status=beforeIsDesired ? beforeStatus : status(observed);
         boolean synced=status.path("sync").path("status").asText().equals("Synced")
             && status.path("sync").path("revision").asText().equals(plan.chartRevision());
         boolean healthy=status.path("health").path("status").asText().equals("Healthy");
@@ -111,13 +125,8 @@ public class KubernetesProvisioner implements ProvisioningGateway {
             put(resource("v1","Secret","preview-runtime",ns,lease,"type","Opaque","stringData",m(
                 "DATABASE_PASSWORD",HexFormat.of().formatHex(password),"KUBESPAWN_DEV_TOKEN",HexFormat.of().formatHex(token))),lease,current);
         } else owned(get("v1","Secret","preview-runtime",ns),lease);
-        put(resource("rbac.authorization.k8s.io/v1","Role","preview-deployer",ns,lease,"rules",List.of(
-            m("apiGroups",List.of("apps"),"resources",List.of("deployments","statefulsets","replicasets"),"verbs",List.of("get","list","watch","create","update","patch","delete")),
-            m("apiGroups",List.of(""),"resources",List.of("services","configmaps","persistentvolumeclaims"),"verbs",List.of("get","list","watch","create","update","patch","delete")),
-            m("apiGroups",List.of("batch"),"resources",List.of("jobs"),"verbs",List.of("get","list","watch","create","update","patch","delete")),
-            m("apiGroups",List.of(""),"resources",List.of("pods","events"),"verbs",List.of("get","list","watch")))),lease,current);
         put(resource("rbac.authorization.k8s.io/v1","RoleBinding","preview-deployer",ns,lease,
-            "roleRef",m("apiGroup","rbac.authorization.k8s.io","kind","Role","name","preview-deployer"),
+            "roleRef",m("apiGroup","rbac.authorization.k8s.io","kind","ClusterRole","name","kubespawn-preview-deployer"),
             "subjects",List.of(m("kind","ServiceAccount","name","argocd-application-controller","namespace","argocd"))),lease,current);
     }
 
@@ -128,6 +137,7 @@ public class KubernetesProvisioner implements ProvisioningGateway {
             remove("argoproj.io/v1alpha1","Application",app,"argocd",lease,current);
             return waitFor("ARGO_CLEANUP_PENDING","Waiting for Argo's resource finalizer to remove workloads.");
         }
+        registerNamespace(namespace,false,current);
         if (get("v1","Namespace",namespace,null)!=null) {
             remove("v1","Namespace",namespace,null,lease,current);
             return waitFor("NAMESPACE_CLEANUP_PENDING","Waiting for Kubernetes to confirm namespace and namespaced resource removal.");
@@ -140,15 +150,19 @@ public class KubernetesProvisioner implements ProvisioningGateway {
         return new Observation("CLEANUP_CONFIRMED","Kubernetes confirms the namespace, Application, and project are absent.",true);
     }
 
-    private void registerNamespace(String namespace,BooleanSupplier current) {
+    private void registerNamespace(String namespace,boolean add,BooleanSupplier current) {
         guard(current);
         var secret=client.secrets().inNamespace("argocd").withName("kubespawn-local-cluster").get();
         if (secret==null) throw new IllegalStateException("Local Argo cluster credentials are missing.");
         String currentNamespaces=new String(Base64.getDecoder().decode(secret.getData().get("namespaces")),StandardCharsets.UTF_8);
         var names=new java.util.TreeSet<>(List.of(currentNamespaces.split(",")));
-        if (!names.add(namespace)) return;
+        names.remove("argocd"); names.remove("kubespawn-unassigned"); names.remove("");
+        if (add) names.add(namespace); else names.remove(namespace);
+        if (names.isEmpty()) names.add("kubespawn-unassigned");
+        String nextNamespaces=String.join(",",names);
+        if (nextNamespaces.equals(currentNamespaces)) return;
         guard(current);
-        secret.getData().put("namespaces",Base64.getEncoder().encodeToString(String.join(",",names).getBytes(StandardCharsets.UTF_8)));
+        secret.getData().put("namespaces",Base64.getEncoder().encodeToString(nextNamespaces.getBytes(StandardCharsets.UTF_8)));
         client.secrets().inNamespace("argocd").resource(secret).lockResourceVersion().replace();
     }
 
@@ -157,32 +171,43 @@ public class KubernetesProvisioner implements ProvisioningGateway {
     }
     private Map<String,Object> selector(String component) { return m("matchLabels",m("app.kubernetes.io/name",component,"app.kubernetes.io/instance","preview")); }
     private GenericKubernetesResource get(String api,String kind,String name,String namespace) {
-        return client.genericKubernetesResources(context(api,kind)).inNamespace(namespace).withName(name).get();
+        return operation(client,api,kind,name,namespace).get();
     }
     private void put(Map<String,Object> value,JobLease lease,BooleanSupplier current) {
         guard(current);
         var desired=Serialization.unmarshal(json.writeValueAsString(value),GenericKubernetesResource.class);
-        var op=client.genericKubernetesResources(context(desired.getApiVersion(),desired.getKind())).inNamespace(desired.getMetadata().getNamespace());
-        var existing=op.withName(desired.getMetadata().getName()).get();
+        var op=operation(client,desired.getApiVersion(),desired.getKind(),desired.getMetadata().getName(),desired.getMetadata().getNamespace());
+        var existing=op.get();
         guard(current);
-        if (existing==null) { op.resource(desired).create(); return; }
+        if (existing==null) { op.create(desired); return; }
         owned(existing,lease);
         if (existing.getMetadata().getDeletionTimestamp()!=null) throw new IllegalStateException("Owned resource is terminating.");
         // Compare-and-swap: a worker with an older fencing token cannot overwrite a newer write.
         if (Long.parseLong(existing.getMetadata().getAnnotations().getOrDefault(FENCE,"0"))>lease.environmentToken()) throw new IllegalStateException("Newer Kubernetes fence observed.");
         desired.getMetadata().setResourceVersion(existing.getMetadata().getResourceVersion());
         desired.getMetadata().setUid(existing.getMetadata().getUid());
-        op.resource(desired).lockResourceVersion().replace();
+        client.genericKubernetesResources(context(desired.getApiVersion(),desired.getKind())).resource(desired).lockResourceVersion().replace();
     }
     private void remove(String api,String kind,String name,String namespace,JobLease lease,BooleanSupplier current) {
         guard(current); var existing=get(api,kind,name,namespace); if (existing==null) return; owned(existing,lease); guard(current);
-        client.genericKubernetesResources(context(api,kind)).inNamespace(namespace).resource(existing).lockResourceVersion().delete();
+        client.genericKubernetesResources(context(api,kind)).resource(existing).lockResourceVersion().delete();
+    }
+    static io.fabric8.kubernetes.client.dsl.Resource<GenericKubernetesResource> operation(KubernetesClient client,String api,String kind,String name,String namespace) {
+        var resources=client.genericKubernetesResources(context(api,kind));
+        return namespace==null ? resources.withName(name) : resources.inNamespace(namespace).withName(name);
     }
     private void owned(GenericKubernetesResource resource,JobLease lease) {
         if (resource.getMetadata().getLabels()==null || !lease.environmentId().toString().equals(resource.getMetadata().getLabels().get(OWNER)))
             throw new IllegalStateException("Resource ownership conflict.");
     }
-    private ResourceDefinitionContext context(String api,String kind) {
+    private tools.jackson.databind.JsonNode status(GenericKubernetesResource resource) {
+        return resource==null ? json.createObjectNode() : json.readTree(Serialization.asJson(resource)).path("status");
+    }
+    private String sha256(Object value) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(value))); }
+        catch(Exception failure) { throw new IllegalStateException("Cannot hash the desired Argo application."); }
+    }
+    static ResourceDefinitionContext context(String api,String kind) {
         String group=api.contains("/") ? api.substring(0,api.indexOf('/')) : "";
         String version=api.substring(api.indexOf('/')+1);
         String plural=switch(kind) { case "NetworkPolicy"->"networkpolicies"; default->kind.toLowerCase()+"s"; };

@@ -50,7 +50,7 @@ class GitHubAppClientTest {
                 response="{\"token\":\"synthetic-installation-token\",\"expires_at\":\""+java.time.Instant.now().plusSeconds(3600)+"\"}"; status=201;
             } else {
                 lastAuthorization=exchange.getRequestHeaders().getFirst("Authorization");
-                if (path.endsWith("/dispatches")) { dispatchRequest=json.readTree(exchange.getRequestBody().readAllBytes()); status=204; response=""; }
+                if (path.endsWith("/dispatches")) { dispatchRequest=json.readTree(exchange.getRequestBody().readAllBytes()); status=dispatchStatus; response=status==200 ? "{\"workflow_run_id\":123}" : ""; }
                 if (path.endsWith("/zip")) { exchange.getResponseHeaders().set("Location","http://127.0.0.1:"+server.getAddress().getPort()+"/must-not-follow"); status=302; response=""; }
             }
             byte[] body=response.getBytes(StandardCharsets.UTF_8);
@@ -80,7 +80,10 @@ class GitHubAppClientTest {
         assertThat(claims.path("exp").asLong()-claims.path("iat").asLong()).isEqualTo(600);
     }
 
-    @Test void dispatchUsesASeparateActionsWriteTokenAndPinnedSourceInput() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints={200,204})
+    void dispatchUsesASeparateActionsWriteTokenAndPinnedSourceInput(int responseStatus) {
+        dispatchStatus=responseStatus;
         GitHubAppClient client=client(); client.get(repository(),"/repos/example/app");
         client.dispatch(repository(),"a".repeat(40),"00000000-0000-0000-0000-000000000001");
         assertThat(tokenRequests.get()).isEqualTo(2);
@@ -88,6 +91,7 @@ class GitHubAppClientTest {
         assertThat(dispatchRequest.path("ref").asText()).isEqualTo("main");
         assertThat(dispatchRequest.path("inputs").path("source_sha").asText()).isEqualTo("a".repeat(40));
     }
+    private int dispatchStatus=200;
 
     @Test void artifactRedirectsCannotSendTokensToAnotherHostOrPlainHttp() {
         assertThatThrownBy(() -> client().artifact(repository(),505)).isInstanceOf(VerificationRejected.class)

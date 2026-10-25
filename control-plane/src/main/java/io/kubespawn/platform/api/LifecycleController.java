@@ -74,6 +74,12 @@ public class LifecycleController {
     @GetMapping("/operations")
     public List<JobStore.Operation> operations(Principal actor) { return jobs.latestOperations(actor.getName()); }
 
+    @PostMapping("/operations/{id}/retry")
+    public ResponseEntity<JobStore.Operation> retry(@PathVariable UUID id,
+            @RequestHeader(value="If-Match",required=false) String match,Principal actor,HttpServletRequest request) {
+        return ResponseEntity.accepted().body(jobs.retry(id,actor.getName(),version(match),requestId(request)));
+    }
+
     public record ExpiryRequest(@NotNull Instant expiresAt) {}
 
     private ResponseEntity.BodyBuilder accepted(LifecycleService.Mutation result) {

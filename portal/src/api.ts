@@ -66,6 +66,12 @@ export interface ProvisioningProgress {
   observedAt: string | null;
 }
 
+export function retryOperation(operation: Operation, environment: Environment): Promise<Operation> {
+  return requestJson(`/api/v1/operations/${operation.id}/retry`, {
+    method: 'POST', headers: { 'If-Match': `"${environment.intentVersion}"` },
+  });
+}
+
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); }
 }

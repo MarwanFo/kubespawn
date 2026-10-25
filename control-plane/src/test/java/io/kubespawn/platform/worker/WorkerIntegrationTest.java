@@ -93,6 +93,25 @@ class WorkerIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT sum(attempts) FROM jobs", Integer.class)).isEqualTo(1);
     }
 
+    @Test void failedOperationRetryRequiresOwnerAndCurrentIntent() {
+        var request=create(); var lease=store.claim("retry-test").orElseThrow();
+        store.fail(lease,"PROCESSOR_ERROR",false);
+        assertThatThrownBy(()->store.retry(lease.id(),"outsider",0,requestId())).isInstanceOf(LifecycleException.class);
+        assertThatThrownBy(()->store.retry(lease.id(),ACTOR,1,requestId())).isInstanceOf(LifecycleException.class);
+        var retried=store.retry(lease.id(),ACTOR,0,requestId());
+        assertThat(retried.state()).isEqualTo("PENDING"); assertThat(retried.failureCount()).isZero();
+        assertThat(lifecycle.get(request.environment().id(),ACTOR).intentVersion()).isZero();
+        runner.runOnce();
+        assertThat(store.operation(lease.id(),ACTOR).state()).isEqualTo("WAITING");
+    }
+
+    @Test void retryCannotResurrectADeletedGeneration() {
+        var request=create(); var lease=store.claim("retry-test").orElseThrow(); store.fail(lease,"PROCESSOR_ERROR",false);
+        lifecycle.delete(request.environment().id(),0,ACTOR,requestId());
+        assertThatThrownBy(()->store.retry(lease.id(),ACTOR,0,requestId())).isInstanceOf(LifecycleException.class);
+        assertThat(lifecycle.get(request.environment().id(),ACTOR).desiredState()).isEqualTo("ABSENT");
+    }
+
     @Test
     void separateJobsForOneEnvironmentShareOneMonotonicLease() {
         var request = create();

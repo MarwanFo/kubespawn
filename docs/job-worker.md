@@ -1,6 +1,6 @@
-# Durable lifecycle worker — v0.4.0
+# Durable lifecycle worker — v0.5.0
 
-The local worker consumes the jobs created by lifecycle transactions and the optional GitHub integration. Environment reconciliation resolves/pins an approved source and waits for trusted build evidence. With verified evidence it records `QUEUED` and waits for Kubernetes integration; teardown still waits with `CLEANUP_VERIFICATION_REQUIRED`. GitHub setup is disabled until credentials/enrollment are supplied. A ref or populated SHA alone does not authorize deployment. Environment readiness and destruction are never inferred from job processing.
+The local worker consumes the jobs created by lifecycle transactions and the optional GitHub and Kubernetes integrations. Environment reconciliation resolves and pins an approved source, waits for trusted build evidence, reserves capacity, and asks the restricted Kubernetes adapter to establish or observe the preview. Teardown continues until Kubernetes confirms the Application, namespace and AppProject are absent. A ref or populated SHA alone does not authorize deployment, and Argo health alone does not authorize `READY`.
 
 ## Queue and serialization
 
@@ -43,11 +43,11 @@ This provides fenced database results and at-least-once processing. Cancellation
 | `retry-max` | `PT1M` |
 | `max-failures` | `5` |
 
-Durations must be positive, heartbeat less than half the lease, retry base no greater than retry maximum, and the failure budget positive. Disable the scheduler with `KUBESPAWN_WORKER_ENABLED=false` for manual inspection; due work stays durable. Tests disable both worker and expiry schedulers and invoke batches explicitly. A failed job currently needs diagnosis and a future administrative retry workflow; no public retry/reset endpoint is provided.
+Durations must be positive, heartbeat less than half the lease, retry base no greater than retry maximum, and the failure budget positive. Disable the scheduler with `KUBESPAWN_WORKER_ENABLED=false` for manual inspection; due work stays durable. Tests disable both worker and expiry schedulers and invoke batches explicitly. After diagnosis, an owner may explicitly retry only the latest FAILED operation for an ACTIVE, unexpired request by supplying its current intent version. The retry preserves intent and history, resets the failure budget, and writes an audit event; it cannot revive deleted, expired, superseded or foreign work.
 
 ## Progress API and portal
 
-Local bearer/owner checks protect `GET /api/v1/operations/{id}` and `GET /api/v1/operations`. The latter returns the latest intent's operation for up to 100 owned environments in one request. Responses include state, reason, safe message, attempts, failure count, update time, next availability, heartbeat, lease expiry, and completion time. Internal worker identities and tokens are not exposed.
+Local bearer/owner checks protect `GET /api/v1/operations/{id}`, `GET /api/v1/operations`, and `POST /api/v1/operations/{id}/retry`. The list returns the latest intent's operation for up to 100 owned environments in one request. Responses include state, reason, safe message, attempts, failure count, update time, next availability, heartbeat, lease expiry, and completion time. Internal worker identities and tokens are not exposed.
 
 The portal polls progress every five seconds and displays only progress matching the environment's current intent version. Mutation completion invalidates progress and inventory queries. The configured worker flag is separate from the Kubernetes controller flag and is not a liveness guarantee. A healthy API also does not prove an external worker integration is available.
 

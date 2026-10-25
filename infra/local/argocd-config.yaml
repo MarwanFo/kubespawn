@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  # Exclude resource types that the namespace deployment identity cannot list.
+  resource.respectRBAC: strict
+  application.resourceTrackingMethod: annotation

@@ -36,7 +36,7 @@ The signed delivery is a wakeup, not deployment evidence. The worker independent
 4. Downloaded ZIP bytes matching that digest; schema version, repository/run/attempt/source/request binding matching policy and stored dispatch identity.
 5. Exactly `api` and `web`, exact approved GHCR paths, and immutable `sha256:<64 hex>` digests for both components. Missing components, mutable tags, wrong registry paths, or missing scan/SBOM/provenance policy declarations are rejected.
 
-Verified evidence records the run/attempt, workflow revision/hash, artifact identity/digest, image digests, chart policy, and verification timestamp. A build result alone never creates an environment. An eligible ACTIVE, unexpired request with that pinned SHA and current policy can bind it and move to `QUEUED`; the operation waits with `KUBERNETES_INTEGRATION_REQUIRED`. It never becomes READY or sets a serving revision. Absence and cleanup still require a separate resource integration.
+Verified evidence records the run/attempt, workflow revision/hash, artifact identity/digest, image digests, chart policy, and verification timestamp. A build result alone never creates an environment. An eligible ACTIVE, unexpired request with that pinned SHA and current policy can bind it and move to `QUEUED`; when the optional local Kubernetes adapter is enabled, separate chart/application admission and capacity checks may then move it to `PROVISIONING`. It never becomes READY or sets a serving revision from build or Argo evidence alone.
 
 ## Supplied CI pipeline
 
@@ -55,6 +55,6 @@ The receiver trusts this reviewed producer's digest receipts and policy declarat
 | `POST /api/v1/github/repositories` | Local bearer | Remote policy validation and audited enrollment |
 | `GET /api/v1/github/environment-builds` | Local bearer, owner | Latest 100 owned requests with source/build state and verified digests |
 
-The local trust model remains one developer. Enterprise OIDC audience/team/tenant policy, a worker deployment profile, capacity, chart-content admission, browser login, and Kubernetes/Argo integration remain required before deployment. API errors use controlled messages; failed queue records retain controlled reason codes. There is no public credential API, image override, unverified-build shortcut, or administrative job-reset endpoint.
+The local trust model remains one developer. Enterprise OIDC audience/team/tenant policy, a production worker profile, browser login, private preview routing and independent provenance admission remain required before deployment. API errors use controlled messages; failed queue records retain controlled reason codes. There is no public credential API, image override or unverified-build shortcut. The local owner-scoped retry route can reset only the current failed environment operation under its version precondition.
 
 See [setup](github-setup.md) and [verification results](github-verification.md). Primary references: [GitHub JWT authentication](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app), [workflow runs](https://docs.github.com/en/rest/actions/workflow-runs), [artifact API](https://docs.github.com/en/rest/actions/artifacts), [Skopeo copy behavior](https://github.com/podman-container-tools/skopeo/blob/main/docs/skopeo-copy.1.md).

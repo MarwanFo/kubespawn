@@ -55,6 +55,14 @@ public class JobRunner {
             task.cancel(true);
             if (valid.get()) store.fail(lease, "PROCESSING_TIMEOUT", true);
         } catch (ExecutionException failure) {
+            // Log controlled classification only; Kubernetes messages can contain Secret bodies.
+            if (failure.getCause() instanceof io.fabric8.kubernetes.client.KubernetesClientException remote) {
+                Throwable root=remote;
+                for(int depth=0;depth<10 && root.getCause()!=null;depth++) root=root.getCause();
+                log.warn("Kubernetes operation failed (HTTP {}, cause {}). Check controller permissions and cluster health.",remote.getCode(),root.getClass().getSimpleName());
+            } else {
+                log.warn("Processor failed ({}). Details are withheld because upstream responses may contain credentials.",failure.getCause().getClass().getSimpleName());
+            }
             boolean rejected=failure.getCause() instanceof io.kubespawn.platform.github.VerificationRejected;
             if (valid.get()) store.fail(lease,
                 rejected ? ((io.kubespawn.platform.github.VerificationRejected)failure.getCause()).code()

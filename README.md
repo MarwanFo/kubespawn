@@ -66,7 +66,7 @@ Gradle Wrapper 9.8.2 is included with its distribution SHA-256. npm and Gradle d
 | `portal/` | React 19, TypeScript, Vite, Tailwind, TanStack Query |
 | `compose.yaml` | Local PostgreSQL, API, and portal; host ports bind only to loopback |
 | `infra/local/` | Optional KinD configuration and cluster prerequisites |
-| `templates/preview-small/` | Workload-only Helm starter; not automatically installed |
+| `templates/preview-small/` | Reviewed workload-only Helm chart; rendered by Argo only after build, policy and capacity admission |
 | `templates/baseline/` | Controller-owned namespace baseline example |
 | `scripts/` | Windows setup, start/stop, development, smoke, and verification helpers |
 | `docs/` | Delivery scope, architectural decisions, and operating notes |
@@ -87,20 +87,23 @@ Gradle Wrapper 9.8.2 is included with its distribution SHA-256. npm and Gradle d
 | `GET /api/v1/environments/{id}/audit` | Local bearer, owner | Latest 50 audit events |
 | `GET /api/v1/operations/{id}` | Local bearer, owner | Operation state, reason, attempts, failures, and timing |
 | `GET /api/v1/operations` | Local bearer, owner | Latest operation per environment, maximum 100 |
+| `POST /api/v1/operations/{id}/retry` | Local bearer, owner | Retry the current failed ACTIVE/unexpired operation; requires quoted `If-Match` |
 | `GET /api/v1/github/status` | Local bearer | GitHub configuration and enrolled repository policies |
 | `POST /api/v1/github/repositories` | Local bearer | Validate App access and enroll a reviewed build policy |
 | `GET /api/v1/github/environment-builds` | Local bearer, owner | Pinned SHA, build progress, and verified image digests |
+| `GET /api/v1/kubernetes/status` | Local bearer | Local controller flag, slot limit, and preview-routing readiness |
+| `GET /api/v1/kubernetes/environment-progress` | Local bearer, owner | Capacity, namespace, Argo and cleanup observations |
 | `POST /integrations/github/webhook` | Raw-body HMAC | Deduplicated run receipt and installation/removal events |
 | `GET /actuator/prometheus` | Bearer | Micrometer metrics; restrict access further before deployment |
 
-Mutations return `202 Accepted` with an environment snapshot and `operationId`. They record intent rather than claiming provisioning or removal. Initial TTL is 1–24 hours; extensions are bounded by 72 hours from creation. The local expiry scanner runs every 30 seconds and requests absence for expired records. It never claims to delete Kubernetes resources. Stale versions return 412, missing version preconditions return 428, and deleted/expired requests cannot be reactivated. See [the lifecycle contract](docs/lifecycle-intents.md).
+Mutations return `202 Accepted` with an environment snapshot and `operationId`. They record intent rather than claiming provisioning or removal. Initial TTL is 1–24 hours; extensions are bounded by 72 hours from creation. The local expiry scanner runs every 30 seconds and requests absence for expired records; the worker reports `DESTROYED` only after the Kubernetes adapter confirms remote absence. Stale versions return 412, missing version preconditions return 428, and deleted/expired requests cannot be reactivated. See [the lifecycle contract](docs/lifecycle-intents.md).
 
-The local worker polls every 2 seconds. Expected prerequisite waits use `WAITING` and are checked again after 30 seconds; processing failures use bounded retries, and obsolete intents become `SUPERSEDED`. `workerEnabled` reports the configured scheduler separately from `controllerEnabled`, which remains false. It is not a worker liveness probe. See [worker behavior and recovery](docs/job-worker.md).
+The local worker polls every 2 seconds. Expected prerequisite waits use `WAITING` and are checked again after 30 seconds; processing failures use bounded retries, and obsolete intents become `SUPERSEDED`. `workerEnabled` reports the configured scheduler separately from `controllerEnabled`; the latter becomes true only with the explicit Kubernetes overlay. Neither flag is a liveness probe. See [worker behavior and recovery](docs/job-worker.md).
 
 GitHub delivery metadata is a wakeup rather than build authority. The verifier independently checks current run identity/attempt, approved workflow bytes, successful conclusion, source/request binding, complete image set, exact registry paths, and downloaded artifact SHA-256. A verified build alone cannot create or reactivate an environment. The supplied workflow runs tests/builds/scans without registry write permission and publishes from a separate runner. It is disabled until the repository variable `KUBESPAWN_PUBLISH_IMAGES` is explicitly enabled. See [the verification contract](docs/github-build-verification.md).
 
 The local profile accepts the generated development token and represents one trusted local developer. The new lifecycle detail/mutation routes are available only in that profile. Outside it, only the earlier inventory/platform reads are supported; the API requires an OIDC issuer (`OIDC_ISSUER_URI`) and the `environments:read` token scope. JWT read/write scopes cannot enable local mutations. Production audience validation, repository/team authorization, browser OIDC login, private preview authorization, and tenancy enforcement remain required before deployment. The default profile never falls back to the development token.
 
-The Compose portal is a **local development proxy** that inserts that token. Browser mutations must have an Origin matching the proxy's forwarded Host; the local Vite and Compose proxies preserve it. Do not expose or reuse this proxy configuration as a production deployment. Production browser authentication needs its own implementation. The local stack has no Kubernetes credentials and cannot create a preview cluster.
+The Compose portal is a **local development proxy** that inserts that token. Browser mutations must have an Origin matching the proxy's forwarded Host; the local Vite and Compose proxies preserve it. Do not expose or reuse this proxy configuration as a production deployment. Production browser authentication needs its own implementation. The base stack has no Kubernetes credentials; only the explicit ignored Kubernetes overlay mounts the restricted controller credential.
 
 See [implementation status](docs/implementation-status.md), [GitHub setup](docs/github-setup.md), [GitHub verification results](docs/github-verification.md), [worker behavior](docs/job-worker.md), [worker verification](docs/worker-verification.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).

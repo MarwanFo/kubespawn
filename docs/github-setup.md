@@ -68,7 +68,7 @@ Template hashing uses relative forward-slash paths sorted ordinally, each follow
 
 Refresh the portal. An existing ACTIVE request for the enrolled `main` branch will resolve once to a full SHA, create one durable build request, and dispatch the approved workflow. It does not follow later branch movements. The webhook receiver acknowledges durable receipt; the worker independently retrieves the current run and approved artifact from GitHub.
 
-After a successful run, verification checks the workflow identity/content, attempt, source/request binding, complete image set, allowed image paths, SHA-256 digests, scan/provenance policy, and downloaded artifact integrity. Within approximately one prerequisite interval, the portal should show **Build verified** with the pinned SHA and API/web digests, then **Provisioning pending**. No preview URL or READY state is created.
+After a successful run, verification checks the workflow identity/content, attempt, source/request binding, complete image set, allowed image paths, SHA-256 digests, scan/provenance policy, and downloaded artifact integrity. Within approximately one prerequisite interval, the portal should show **Build verified** with the pinned SHA and API/web digests. With the Kubernetes overlay enabled, it then reports observed namespace/Argo progress. Healthy workloads remain **Provisioning pending** until authenticated preview routing and endpoint checks are implemented; no preview URL or READY state is created.
 
 GitHub may have sent an initial ping before the API was configured. Redeliver it from the App's delivery page after setup. A completed workflow run may also be redelivered safely; delivery and run-attempt deduplication prevent duplicate verification work.
 
@@ -84,7 +84,7 @@ GitHub may have sent an initial ping before the API was configured. Redeliver it
 | `WORKFLOW_NOT_APPROVED` | Current workflow bytes differ from the reviewed policy; approve intentionally |
 | `BUILD_NOT_SUCCESSFUL` | Inspect the GitHub run; retry it after fixing the failure |
 | `STALE_RUN_ATTEMPT` | An old delivery arrived after a rerun; wait for/redeliver the current attempt |
-| `KUBERNETES_INTEGRATION_REQUIRED` | Build is verified; deployment is the next milestone |
+| `KUBERNETES_INTEGRATION_REQUIRED` | Build is verified; start the API with the configured Kubernetes overlay |
 
 Repository verification/dispatch jobs are internal queue records, separate from owner-scoped environment operations. Inspect controlled `reason`/`last_error` codes and GitHub delivery states in PostgreSQL when diagnosing them; credentials and upstream error bodies are not stored. Exhausted jobs require operator diagnosis; a general administrative retry endpoint remains future work. A rerun creates a new run-attempt identity and can be verified independently.
 

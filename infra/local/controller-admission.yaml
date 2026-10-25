@@ -47,7 +47,7 @@ spec:
       message: Preview service accounts must disable token automounting.
     - expression: >-
         request.resource.resource != 'rolebindings' || request.operation == 'DELETE' ||
-        (variables.meta.name == 'preview-deployer' && object.roleRef.kind == 'Role' && object.roleRef.name == 'preview-deployer'
+        (variables.meta.name == 'preview-deployer' && object.roleRef.kind == 'ClusterRole' && object.roleRef.name == 'kubespawn-preview-deployer'
           && object.subjects.size() == 1 && object.subjects[0].kind == 'ServiceAccount' && object.subjects[0].name == 'argocd-application-controller' && object.subjects[0].namespace == 'argocd')
       message: Only the namespace deployment role may be bound to the Argo controller.
     - expression: >-

@@ -10,6 +10,8 @@ if ($taskContext -ne 'kind-kubespawn') { throw 'Use only the dedicated kind-kube
 Assert-NativeSuccess 'Install controller admission boundary'
 & kubectl --kubeconfig $AdminKubeconfig apply -f "$ProjectRoot/infra/local/controller-rbac.yaml"
 Assert-NativeSuccess 'Install controller RBAC'
+& kubectl --kubeconfig $AdminKubeconfig apply --server-side --field-manager=kubespawn-local -f "$ProjectRoot/infra/local/argocd-config.yaml"
+Assert-NativeSuccess 'Configure Argo RBAC-aware resource observation'
 $taskControllerToken = (& kubectl --kubeconfig $AdminKubeconfig -n kubespawn-system create token kubespawn-controller --duration=24h).Trim()
 Assert-NativeSuccess 'Issue local controller credential'
 $taskAdmin = (& kubectl --kubeconfig $AdminKubeconfig config view --raw -o json | ConvertFrom-Json)
@@ -28,7 +30,7 @@ $taskArgoToken=(& kubectl --kubeconfig $AdminKubeconfig -n argocd create token a
 Assert-NativeSuccess 'Issue local Argo credential'
 $taskArgoSecret=@{
     apiVersion='v1';kind='Secret';metadata=@{name='kubespawn-local-cluster';namespace='argocd';labels=@{'argocd.argoproj.io/secret-type'='cluster'}}
-    stringData=@{name='kubespawn-local';server='https://kubernetes.default.svc';namespaces='argocd';clusterResources='false';config=(@{bearerToken=$taskArgoToken;tlsClientConfig=@{insecure=$false;caData=$taskAdmin.clusters[0].cluster.'certificate-authority-data'}}|ConvertTo-Json -Depth 5 -Compress)}
+    stringData=@{name='kubespawn-local';server='https://kubernetes.default.svc';namespaces='kubespawn-unassigned';clusterResources='false';config=(@{bearerToken=$taskArgoToken;tlsClientConfig=@{insecure=$false;caData=$taskAdmin.clusters[0].cluster.'certificate-authority-data'}}|ConvertTo-Json -Depth 5 -Compress)}
 }
 $taskExisting=& kubectl --kubeconfig $AdminKubeconfig -n argocd get secret kubespawn-local-cluster --ignore-not-found -o json
 Assert-NativeSuccess 'Read Argo cluster registration'

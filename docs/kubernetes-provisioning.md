@@ -32,6 +32,8 @@ The KubeSpawn repository has a deliberately local demo contract: two verified AP
 
 The controller creates a restricted workload service account, quota, limits, default-deny ingress/egress, cluster DNS access, web-to-API and API-to-database allowances, and deployment RBAC. The chart creates only workloads/services/configmaps. Argo has per-namespace deployment rights and cannot mutate quotas, network policy, service accounts, secrets, RBAC, routes, or cluster resources. Its cluster registration lists only managed destination namespaces.
 
+The runtime controller cannot create Roles or grant arbitrary permissions. Bootstrap creates one fixed `kubespawn-preview-deployer` ClusterRole. The controller may bind only that exact role to the namespace-scoped Argo service account, and the admission policy checks the binding name, subject, role and owned namespace.
+
 Every resource carries immutable environment ownership and the environment lease fence. The adapter refuses to adopt unowned resources, uses resource-version comparisons for updates/deletes, and checks current leases, active intent, expiration, repository approval and exact build binding before each active mutation. Admission constrains the controller's namespace/Argo identities; RBAC and Pod Security constrain Argo workloads. This is a local development boundary, not completed tenant authorization or independent provenance admission.
 
 ## Progress and observation
@@ -51,6 +53,8 @@ Open `http://localhost:9090`. There is no public preview route yet. Keep the Git
 ## Verification and limitations
 
 Run `scripts/verify.ps1 -Integration`, Helm lint for generic/demo profiles, the live smoke script, and the live Kubernetes checks recorded in `kubernetes-verification.md`. Test real Argo rollout, delete/finalizer completion, reservation release, forbidden controller/Argo operations, and actual denied network traffic. An accepted NetworkPolicy object alone is not proof of enforcement.
+
+If a current ACTIVE, unexpired operation reaches `FAILED` after its cause is corrected, the portal exposes **Retry operation**. `POST /api/v1/operations/{id}/retry` requires the owner bearer token and the current environment version in `If-Match`; it preserves the request, expiry and intent version, resets only the failed job's retry budget, and records an audit event. It cannot revive a deleted, expired, superseded or foreign request.
 
 Next: authenticated Gateway routing, endpoint checks, independent image/provenance admission, a production application/database/migration contract, durable storage/provider inventory, full tenant/project capacity budgets, fleet orphan scans and database-restore quarantine. Do not deploy this local profile to a shared or production cluster.
 

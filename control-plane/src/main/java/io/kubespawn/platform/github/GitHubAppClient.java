@@ -83,6 +83,10 @@ public class GitHubAppClient implements GitHubGateway {
             "inputs", Map.of("source_sha", sourceSha, "request_id", requestId)));
         var response=send(api.resolve("/repos/" + repository.name() + "/actions/workflows/" + repository.workflowId() + "/dispatches"),
             "POST", token(repository, true), body);
+        if (response.statusCode()==200) {
+            if (readJson(response,16*1024).path("workflow_run_id").asLong()<1) throw new IllegalStateException("GitHub workflow dispatch unavailable.");
+            return;
+        }
         try (var ignored=response.body()) {
             if (response.statusCode()!=204) throw new IllegalStateException("GitHub workflow dispatch unavailable.");
         } catch (Exception failure) { throw new IllegalStateException("GitHub workflow dispatch unavailable."); }

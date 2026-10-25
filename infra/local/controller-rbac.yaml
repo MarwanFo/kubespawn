@@ -29,12 +29,31 @@ rules:
     resources: [networkpolicies]
     verbs: [get, create, update, patch, delete]
   - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles, rolebindings]
+    resources: [rolebindings]
     verbs: [get, create, update, patch, delete]
   - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles]
-    resourceNames: [preview-deployer]
-    verbs: [escalate, bind]
+    resources: [clusterroles]
+    resourceNames: [kubespawn-preview-deployer]
+    verbs: [bind]
+---
+# A fixed administrator-owned definition; bindings grant these rights only in
+# an admitted preview namespace. The runtime controller cannot change this role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: kubespawn-preview-deployer}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, replicasets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [services, configmaps, persistentvolumeclaims]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [pods, events]
+    verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

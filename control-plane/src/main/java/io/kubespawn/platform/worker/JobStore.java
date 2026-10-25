@@ -159,6 +159,21 @@ public class JobStore {
             """, this::operation, actor);
     }
 
+    @Transactional
+    public Operation retry(UUID id,String actor,long version,String requestId) {
+        var operation=jdbc.query("SELECT j.* FROM jobs j JOIN environments e ON e.id=j.environment_id WHERE j.id=? AND e.owner_actor=? FOR UPDATE OF j",
+            this::operation,id,actor).stream().findFirst().orElseThrow(()->new LifecycleException(HttpStatus.NOT_FOUND,"NOT_FOUND","Operation not found."));
+        var intent=jdbc.queryForMap("SELECT intent_version,desired_state,expires_at>clock_timestamp() AS unexpired FROM environments WHERE id=? FOR UPDATE",operation.environmentId());
+        if (((Number)intent.get("intent_version")).longValue()!=version || operation.intentVersion()!=version)
+            throw new LifecycleException(HttpStatus.PRECONDITION_FAILED,"STALE_VERSION","Refresh this environment before retrying.");
+        if (!operation.state().equals("FAILED") || !intent.get("desired_state").equals("ACTIVE") || !Boolean.TRUE.equals(intent.get("unexpired")))
+            throw new LifecycleException(HttpStatus.CONFLICT,"NOT_RETRYABLE","Only a failed operation for the current active, unexpired intent can be retried.");
+        jdbc.update("UPDATE jobs SET state='PENDING',failure_count=0,reason='RETRY_REQUESTED',message='An explicit retry was requested.',last_error=NULL,finished_at=NULL,available_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?",id);
+        jdbc.update("INSERT INTO audit_events(id,environment_id,actor,action,request_id,details) VALUES (?,?,?,'OPERATION_RETRY_REQUESTED',?,jsonb_build_object('operationId',?::text,'previousFailures',?::int))",
+            UUID.randomUUID(),operation.environmentId(),actor,requestId,id.toString(),operation.failureCount());
+        return operation(id,actor);
+    }
+
     // These row locks are held only for short DB transactions, never while a processor runs.
     private boolean fenced(JobLease lease) {
         boolean job = !jdbc.query("""

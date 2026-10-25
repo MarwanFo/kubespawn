@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Box, Clock3, History, Trash2 } from 'lucide-react';
-import { deleteEnvironment, extendEnvironment, getJson } from './api';
+import { deleteEnvironment, extendEnvironment, getJson, retryOperation } from './api';
 import type { AuditEvent, BuildProgress, Environment, Operation, ProvisioningProgress } from './api';
 
 export function EnvironmentCard({ environment, canManage, operation, trackProgress, build, provisioning }: {
@@ -15,17 +15,24 @@ export function EnvironmentCard({ environment, canManage, operation, trackProgre
     enabled: showAudit,
   });
   const action = useMutation({
-    mutationFn: (type: 'extend' | 'delete') => type === 'delete' ? deleteEnvironment(environment)
-      : extendEnvironment(environment, new Date(Math.min(
+    mutationFn: async (type: 'extend' | 'delete' | 'retry') => {
+      if (type === 'retry') {
+        if (!operation) throw new Error('Refresh operation progress before retrying.');
+        const result = await retryOperation(operation, environment);
+        return { environment, operationId: result.id };
+      }
+      return type === 'delete' ? deleteEnvironment(environment) : extendEnvironment(environment, new Date(Math.min(
         Date.parse(environment.expiresAt) + 4 * 3_600_000,
         Date.parse(environment.createdAt) + 72 * 3_600_000,
-      )).toISOString()),
+      )).toISOString());
+    },
     retry: false,
     onSettled: () => {
       setConfirmDelete(false);
       void client.invalidateQueries({ queryKey: ['environments'] });
       void client.invalidateQueries({ queryKey: ['operations'] });
       void client.invalidateQueries({ queryKey: ['github-builds'] });
+      void client.invalidateQueries({ queryKey: ['provisioning'] });
       void client.invalidateQueries({ queryKey: ['audit', environment.id] });
     },
   });
@@ -64,7 +71,7 @@ export function EnvironmentCard({ environment, canManage, operation, trackProgre
         <p>{currentOperation.message}</p>
         <small>{currentOperation.attempts} checks · {currentOperation.failureCount} failures · Updated {new Date(currentOperation.updatedAt).toLocaleTimeString()}
           {['WAITING', 'PENDING'].includes(currentOperation.state) && <> · Next check after {new Date(currentOperation.availableAt).toLocaleTimeString()}</>}</small>
-        {currentOperation.state === 'FAILED' && <small>Automatic retries stopped. Review the worker and its integrations.</small>}
+        {currentOperation.state === 'FAILED' && <><small>Automatic retries stopped. Retry after resolving the reported issue.</small>{canManage && active && unexpired && <button className="small-button" disabled={action.isPending} onClick={() => action.mutate('retry')}>Retry operation</button>}</>}
       </> : <p>Refreshing operation progress for intent v{environment.intentVersion}…</p>}
     </div>}
     <div className="environment-actions">
