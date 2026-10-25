@@ -13,7 +13,11 @@ for ($taskAttempt = 0; $taskAttempt -lt 60; $taskAttempt++) {
 if (-not $taskReady) { throw 'API readiness did not become healthy. Check docker compose logs api.' }
 $taskHeaders = @{ Authorization = "Bearer $env:KUBESPAWN_DEV_TOKEN" }
 $taskPlatform = Invoke-RestMethod "$taskApi/api/v1/platform" -Headers $taskHeaders
-if ($taskPlatform.controllerEnabled) { throw 'Foundation unexpectedly reports a provisioning controller.' }
+if ($taskPlatform.controllerEnabled) {
+    $taskKubernetes = Invoke-RestMethod "$taskApi/api/v1/kubernetes/status" -Headers $taskHeaders
+    if (-not $taskKubernetes.enabled) { throw 'Kubernetes controller configuration is inconsistent.' }
+    $null = Invoke-RestMethod "$taskApi/api/v1/kubernetes/environment-progress" -Headers $taskHeaders
+}
 if ($taskPlatform.capabilities -notcontains 'job-processing') { throw 'Local API does not expose worker progress.' }
 $taskOperations = Invoke-RestMethod "$taskApi/api/v1/operations" -Headers $taskHeaders
 $taskGithubStatus = Invoke-RestMethod "$taskApi/api/v1/github/status" -Headers $taskHeaders

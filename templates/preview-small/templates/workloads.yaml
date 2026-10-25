@@ -39,6 +39,25 @@ spec:
           type: RuntimeDefault
       containers:
         - name: {{ $name }}
+          {{- if eq $.Values.runtimeProfile "kubespawn-demo" }}
+          envFrom:
+            - secretRef:
+                name: preview-runtime
+          {{- if eq $name "api" }}
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: local}
+            - {name: DATABASE_URL, value: 'jdbc:postgresql://preview-database:5432/preview'}
+            - {name: DATABASE_USER, value: preview}
+            - {name: KUBESPAWN_WORKER_ENABLED, value: 'false'}
+            - {name: KUBESPAWN_LIFECYCLE_EXPIRY_ENABLED, value: 'false'}
+            - {name: GITHUB_ENABLED, value: 'false'}
+          {{- else }}
+          command: [/bin/sh, -c]
+          args: ["mkdir -p /tmp/conf.d; exec /docker-entrypoint.sh nginx -g 'daemon off;' "]
+          env:
+            - {name: NGINX_ENVSUBST_OUTPUT_DIR, value: /tmp/conf.d}
+          {{- end }}
+          {{- end }}
           image: {{ printf "%s@%s" $component.image.repository $component.image.digest | quote }}
           imagePullPolicy: IfNotPresent
           ports:
@@ -70,10 +89,25 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if and (eq $.Values.runtimeProfile "kubespawn-demo") (eq $name "web") }}
+            - name: web-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: web-config
+              mountPath: /etc/nginx/templates/default.conf.template
+              subPath: default.conf.template
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        {{- if and (eq $.Values.runtimeProfile "kubespawn-demo") (eq $name "web") }}
+        - name: web-config
+          configMap:
+            name: preview-web-config
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

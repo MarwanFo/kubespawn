@@ -1,0 +1,65 @@
+# RBAC cannot restrict namespace creation by a name prefix. Admission supplies that boundary.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: kubespawn-controller-boundary}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['*']
+        apiVersions: ['*']
+        operations: [CREATE, UPDATE, DELETE]
+        resources: ['*']
+  matchConditions:
+    - name: controller
+      expression: request.userInfo.username == 'system:serviceaccount:kubespawn-system:kubespawn-controller'
+  variables:
+    - name: target
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: meta
+      expression: variables.target.metadata
+    - name: owner
+      expression: "has(variables.meta.labels) && 'kubespawn.io/environment-id' in variables.meta.labels ? variables.meta.labels['kubespawn.io/environment-id'] : ''"
+    - name: targetNamespace
+      expression: "request.resource.resource == 'namespaces' ? variables.meta.name : request.namespace"
+  validations:
+    - expression: >-
+        (request.namespace == 'argocd' && request.resource.resource == 'secrets' && variables.meta.name == 'kubespawn-local-cluster' && request.operation == 'UPDATE'
+          && object.data['config'] == oldObject.data['config'] && object.data['server'] == oldObject.data['server'] && object.data['name'] == oldObject.data['name'])
+        || (variables.owner.matches('^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$')
+          && ((variables.targetNamespace == 'ks-man-' + variables.owner.replace('-', ''))
+            || (request.namespace == 'argocd' && request.resource.group == 'argoproj.io' && variables.meta.name == 'ks-' + variables.owner.replace('-', ''))))
+      message: Controller writes must target an owned preview namespace or its exact Argo identity.
+    - expression: >-
+        request.operation != 'UPDATE' || !has(oldObject.metadata.labels) || !('kubespawn.io/environment-id' in oldObject.metadata.labels)
+        || variables.owner == oldObject.metadata.labels['kubespawn.io/environment-id']
+      message: Environment ownership is immutable.
+    - expression: >-
+        request.resource.resource != 'secrets' || request.namespace == 'argocd' || variables.meta.name == 'preview-runtime'
+      message: Only the isolated preview runtime secret may be created.
+    - expression: >-
+        request.resource.resource != 'namespaces' || request.operation == 'DELETE' ||
+        ('pod-security.kubernetes.io/enforce' in object.metadata.labels && object.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted')
+      message: Preview namespaces must enforce restricted Pod Security.
+    - expression: >-
+        request.resource.resource != 'serviceaccounts' || request.operation == 'DELETE' ||
+        (variables.meta.name == 'preview-workload' && has(object.automountServiceAccountToken) && object.automountServiceAccountToken == false)
+      message: Preview service accounts must disable token automounting.
+    - expression: >-
+        request.resource.resource != 'rolebindings' || request.operation == 'DELETE' ||
+        (variables.meta.name == 'preview-deployer' && object.roleRef.kind == 'Role' && object.roleRef.name == 'preview-deployer'
+          && object.subjects.size() == 1 && object.subjects[0].kind == 'ServiceAccount' && object.subjects[0].name == 'argocd-application-controller' && object.subjects[0].namespace == 'argocd')
+      message: Only the namespace deployment role may be bound to the Argo controller.
+    - expression: >-
+        request.resource.resource != 'roles' || request.operation == 'DELETE' ||
+        (variables.meta.name == 'preview-deployer' && object.rules.all(r,
+          r.apiGroups.all(g, g in ['', 'apps', 'batch']) && r.resources.all(x, x in ['deployments','statefulsets','replicasets','services','configmaps','persistentvolumeclaims','jobs','pods','events'])
+          && r.verbs.all(v, v in ['get','list','watch','create','update','patch','delete']) && !has(r.nonResourceURLs)))
+      message: Deployment roles cannot grant access to namespace baselines, secrets, RBAC, or cluster resources.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: kubespawn-controller-boundary}
+spec:
+  policyName: kubespawn-controller-boundary
+  validationActions: [Deny]

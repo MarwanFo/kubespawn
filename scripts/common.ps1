@@ -8,6 +8,8 @@ function Import-LocalEnvironment {
     $taskEnvFiles = @($taskEnvFile)
     $taskGithubEnvFile = Join-Path $script:ProjectRoot '.env.github'
     if (Test-Path -LiteralPath $taskGithubEnvFile) { $taskEnvFiles += $taskGithubEnvFile }
+    $taskKubernetesEnvFile = Join-Path $script:ProjectRoot '.env.kubernetes'
+    if (Test-Path -LiteralPath $taskKubernetesEnvFile) { $taskEnvFiles += $taskKubernetesEnvFile }
     foreach ($taskLine in Get-Content -LiteralPath $taskEnvFiles) {
         if ($taskLine -match '^([A-Z][A-Z0-9_]*)=(.*)$') {
             [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
@@ -27,4 +29,15 @@ function Use-ProjectJava {
 
 function Assert-NativeSuccess([string] $Step) {
     if ($LASTEXITCODE -ne 0) { throw "$Step failed (exit code $LASTEXITCODE)." }
+}
+
+function Get-ProjectComposeArguments {
+    $taskArguments = @('--env-file', '.env', '-f', 'compose.yaml')
+    if ($env:GITHUB_ENABLED -eq 'true') {
+        $taskArguments += @('--env-file', '.env.github', '-f', 'compose.github.yaml')
+    }
+    if ($env:KUBERNETES_ENABLED -eq 'true') {
+        $taskArguments += @('--env-file', '.env.kubernetes', '-f', 'compose.kubernetes.yaml')
+    }
+    return $taskArguments
 }

@@ -2,6 +2,7 @@
 environmentId: ''
 serviceAccountName: preview-workload
 imagePullSecrets: []
+runtimeProfile: generic
 
 api:
   image:

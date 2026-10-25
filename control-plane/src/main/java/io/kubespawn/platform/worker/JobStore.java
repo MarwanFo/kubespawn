@@ -19,8 +19,11 @@ public class JobStore {
     private final JdbcTemplate jdbc;
     private final WorkerSettings settings;
     private final GitHubStore github;
+    private final io.kubespawn.platform.provisioning.ProvisioningStore provisioning;
 
-    public JobStore(JdbcTemplate jdbc, WorkerSettings settings, GitHubStore github) { this.jdbc = jdbc; this.settings = settings; this.github=github; }
+    public JobStore(JdbcTemplate jdbc, WorkerSettings settings, GitHubStore github,io.kubespawn.platform.provisioning.ProvisioningStore provisioning) {
+        this.jdbc = jdbc; this.settings = settings; this.github=github; this.provisioning=provisioning;
+    }
 
     public record Operation(UUID id, UUID environmentId, String type, String state, long intentVersion,
             int attempts, int failureCount, String reason, String message, Instant createdAt, Instant updatedAt,
@@ -98,6 +101,7 @@ public class JobStore {
         }
         if (decision.verified()!=null && !github.verified(decision.verified(),lease.id())) { supersede(lease); return true; }
         if (decision.dispatchedRequestId()!=null && !github.dispatched(decision.dispatchedRequestId(),lease.intentVersion())) { supersede(lease); return true; }
+        if (decision.provisioning()!=null) provisioning.observed(lease,decision.provisioning());
         jdbc.update("""
             UPDATE jobs SET state=?, reason=?, message=?, last_error=NULL,
                 available_at=clock_timestamp() + ?::bigint * interval '1 millisecond',
@@ -198,7 +202,7 @@ public class JobStore {
 
     private void failure(JobLease lease, String code, boolean retryable) {
         int failures = jdbc.queryForObject("SELECT failure_count+1 FROM jobs WHERE id=?", Integer.class, lease.id());
-        boolean terminal = !retryable || failures >= settings.maxFailures();
+        boolean terminal = !lease.type().equals("TEARDOWN_ENVIRONMENT") && (!retryable || failures >= settings.maxFailures());
         // Only controlled codes/messages are persisted; exception details may contain credentials.
         String message = switch (code) {
             case "LEASE_EXPIRED" -> "The worker lease expired before a result was saved.";

@@ -41,7 +41,7 @@ class PlatformDatabaseTest {
     @Test
     void flywayCreatesTheDurableFoundation() {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-            .isEqualTo(4);
+            .isEqualTo(5);
         for (String table : new String[] {"environment_sources", "environments", "jobs", "outbox_events", "audit_events"}) {
             assertThat(jdbc.queryForObject("SELECT to_regclass(?) IS NOT NULL", Boolean.class, table)).isTrue();
         }

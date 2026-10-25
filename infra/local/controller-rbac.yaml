@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubespawn-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubespawn-controller
+  namespace: kubespawn-system
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubespawn-baseline-controller
+rules:
+  - apiGroups: ['']
+    resources: [namespaces, serviceaccounts, resourcequotas, limitranges]
+    verbs: [get, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [preview-runtime]
+    verbs: [get]
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, create, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, create, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles]
+    resourceNames: [preview-deployer]
+    verbs: [escalate, bind]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubespawn-baseline-controller
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kubespawn-baseline-controller}
+subjects:
+  - {kind: ServiceAccount, name: kubespawn-controller, namespace: kubespawn-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: kubespawn-app-controller, namespace: argocd}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications, appprojects]
+    verbs: [get, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames: [kubespawn-local-cluster]
+    verbs: [get, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: kubespawn-app-controller, namespace: argocd}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kubespawn-app-controller}
+subjects:
+  - {kind: ServiceAccount, name: kubespawn-controller, namespace: kubespawn-system}

@@ -56,6 +56,15 @@ export interface Operation {
   lastHeartbeatAt: string | null;
   finishedAt: string | null;
 }
+export interface ProvisioningProgress {
+  environmentId: string;
+  stage: string | null;
+  message: string | null;
+  namespace: string;
+  application: string;
+  capacityReserved: boolean;
+  observedAt: string | null;
+}
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); }

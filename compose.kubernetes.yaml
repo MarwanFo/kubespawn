@@ -1,0 +1,23 @@
+# Add after compose.yaml and compose.github.yaml, with .env.kubernetes loaded.
+services:
+  api:
+    environment:
+      KUBERNETES_ENABLED: 'true'
+      KUBERNETES_KUBECONFIG_FILE: /run/secrets/kubernetes_controller
+      KUBERNETES_SERVER: https://kubespawn-control-plane:6443
+      KUBERNETES_CHART_PATH: /app/preview-chart
+      KUBERNETES_CAPACITY_SLOTS: ${KUBERNETES_CAPACITY_SLOTS:-2}
+    volumes:
+      - ./templates/preview-small:/app/preview-chart:ro
+    secrets:
+      - kubernetes_controller
+    networks:
+      - default
+      - local-kind
+secrets:
+  kubernetes_controller:
+    file: ${KUBERNETES_KUBECONFIG_FILE:?Run scripts/configure-kubernetes.ps1 first}
+networks:
+  local-kind:
+    external: true
+    name: kind

@@ -27,6 +27,12 @@ server:
     include-stacktrace: never
 
 kubespawn:
+  kubernetes:
+    enabled: ${KUBERNETES_ENABLED:false}
+    kubeconfig: ${KUBERNETES_KUBECONFIG_FILE:}
+    server: ${KUBERNETES_SERVER:}
+    chart: ${KUBERNETES_CHART_PATH:../templates/preview-small}
+    slots: ${KUBERNETES_CAPACITY_SLOTS:2}
   github:
     enabled: ${GITHUB_ENABLED:false}
     app-id: ${GITHUB_APP_ID:}

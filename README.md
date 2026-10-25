@@ -2,7 +2,7 @@
 
 An internal developer platform for disposable pull-request environments.
 
-**Current milestone: GitHub build verification.** Enrolled manual requests can pin an approved branch to a full SHA, dispatch a reviewed workflow, and verify its successful image publication through GitHub's run/artifact APIs. The portal shows source/build progress and exact verified image digests. A build-ready request enters `QUEUED` while Kubernetes provisioning remains pending. New GitHub App setup is prepared but requires account registration, credentials, installation, and repository enrollment. Without that configuration, requests remain `WAITING_BUILD`. No Kubernetes workloads are deployed yet.
+**Current milestone: local Kubernetes provisioning (v0.5).** Approved builds can reserve capacity, establish isolated namespaces and constrained Argo projects, and deploy digest-pinned demo workloads. The portal reports observed Argo progress and confirmed cleanup. The local demo uses its own disposable PostgreSQL and credentials; it never uses the platform database. Healthy workloads remain `PROVISIONING` until authenticated preview routing and endpoint checks are implemented. GitHub and Kubernetes integrations are optional and disabled in the base Compose stack.
 
 ## Start locally on Windows
 
@@ -17,6 +17,8 @@ Requirements: PowerShell 7+, Node.js 22.12+, and Docker Desktop with Linux conta
 Open [the portal](http://localhost:5173). API readiness is at [localhost:8080/actuator/health/readiness](http://localhost:8080/actuator/health/readiness). The first start downloads images and builds both services. Setup generates a private, ignored `.env` with random local credentials and never replaces an existing file.
 
 To connect GitHub, follow [the new App setup guide](docs/github-setup.md). `./scripts/configure-github.ps1` prepares ignored configuration and a random webhook secret without enabling external access. The optional `compose.github.yaml` overlay mounts an operator-supplied private key; the normal Compose stack leaves GitHub disabled.
+
+For the local cluster, follow [Kubernetes provisioning](docs/kubernetes-provisioning.md). `./scripts/setup-kubernetes.ps1` prepares KinD, Cilium and namespace-scoped Argo. `scripts/start.ps1` selects configured GitHub/Kubernetes overlays automatically. Existing Vite users should start only `postgres api` with the selected overlays to avoid a portal port conflict.
 
 Stop with `./scripts/stop.ps1`. It retains PostgreSQL data. PostgreSQL is exposed on localhost port 55432 to avoid common Windows reservations around 5432. Port overrides are in `.env`; changing database credentials after the volume has been initialized requires updating the database role as well. Restart the portal after changing the local API token.
 

@@ -1,0 +1,106 @@
+{{- if eq .Values.runtimeProfile "kubespawn-demo" }}
+# Local demonstration only: isolated, ephemeral PostgreSQL; no platform credentials.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: preview-web-config
+  labels:
+    kubespawn.io/environment-id: {{ .Values.environmentId | quote }}
+data:
+  nginx.conf: |
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+    events { worker_connections 256; }
+    http {
+      include /etc/nginx/mime.types;
+      client_body_temp_path /tmp/client_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      include /tmp/conf.d/*.conf;
+    }
+  default.conf.template: |
+    server {
+      listen 8080;
+      server_name _;
+      root /usr/share/nginx/html;
+      index index.html;
+      location /api/ {
+        proxy_pass http://preview-api:8080;
+        proxy_set_header Host $http_host;
+        proxy_set_header Authorization "Bearer ${KUBESPAWN_DEV_TOKEN}";
+      }
+      location / { try_files $uri $uri/ /index.html; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: preview-database
+  labels:
+    kubespawn.io/environment-id: {{ .Values.environmentId | quote }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: database, app.kubernetes.io/instance: preview}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: database
+        app.kubernetes.io/instance: preview
+        kubespawn.io/environment-id: {{ .Values.environmentId | quote }}
+    spec:
+      serviceAccountName: preview-workload
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: database
+          image: postgres:17-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: POSTGRES_DB, value: preview}
+            - {name: POSTGRES_USER, value: preview}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: preview-runtime, key: DATABASE_PASSWORD}}
+          ports: [{name: postgres, containerPort: 5432}]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi, ephemeral-storage: 128Mi}
+            limits: {cpu: 250m, memory: 256Mi, ephemeral-storage: 512Mi}
+          readinessProbe:
+            exec: {command: [pg_isready, -U, preview, -d, preview]}
+          livenessProbe:
+            exec: {command: [pg_isready, -U, preview, -d, preview]}
+            initialDelaySeconds: 30
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: socket, mountPath: /var/run/postgresql}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: data
+          emptyDir: {sizeLimit: 1Gi}
+        - name: socket
+          emptyDir: {sizeLimit: 16Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: preview-database
+  labels:
+    kubespawn.io/environment-id: {{ .Values.environmentId | quote }}
+spec:
+  selector: {app.kubernetes.io/name: database, app.kubernetes.io/instance: preview}
+  ports: [{name: postgres, port: 5432, targetPort: postgres}]
+{{- end }}

@@ -5,7 +5,8 @@ Push-Location $ProjectRoot
 try {
     & docker info --format '{{.ServerVersion}}'
     Assert-NativeSuccess 'Docker engine check (start Docker Desktop if needed)'
-    & docker compose up --build --detach
+    $taskComposeArguments = Get-ProjectComposeArguments
+    & docker compose @taskComposeArguments up --build --detach
     Assert-NativeSuccess 'Local stack startup'
     Write-Host "Portal: http://localhost:$env:PORTAL_PORT"
     Write-Host "Health: http://localhost:$env:API_PORT/actuator/health/readiness"

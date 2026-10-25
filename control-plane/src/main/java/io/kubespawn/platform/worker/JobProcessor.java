@@ -7,7 +7,11 @@ public interface JobProcessor {
     Decision process(JobLease job, Intent intent) throws Exception;
 
     record Intent(long version, String desiredState, String phase, String requestedRevision, String repository, String requestedRef) {}
-    record Decision(String reason, String message, BuildModels.Source source, BuildModels.Verified verified, UUID dispatchedRequestId) {
-        public Decision(String reason,String message) { this(reason,message,null,null,null); }
+    record Decision(String reason, String message, BuildModels.Source source, BuildModels.Verified verified, UUID dispatchedRequestId,
+            io.kubespawn.platform.provisioning.ProvisioningModels.Observation provisioning) {
+        public Decision(String reason,String message) { this(reason,message,null,null,null,null); }
+        public Decision(String reason,String message,BuildModels.Source source,BuildModels.Verified verified,UUID dispatchedRequestId) {
+            this(reason,message,source,verified,dispatchedRequestId,null);
+        }
     }
 }

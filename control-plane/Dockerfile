@@ -12,7 +12,7 @@ FROM eclipse-temurin:21-jre-alpine@sha256:b48e02e0ea88d7bfb305335df94923bdef3949
 RUN apk add --no-cache --upgrade 'brotli-libs=1.2.1-r0'
 RUN addgroup -S kubespawn && adduser -S kubespawn -G kubespawn
 WORKDIR /app
-COPY --from=build --chown=kubespawn:kubespawn /workspace/build/libs/control-plane-0.4.0-SNAPSHOT.jar app.jar
+COPY --from=build --chown=kubespawn:kubespawn /workspace/build/libs/control-plane-0.5.0-SNAPSHOT.jar app.jar
 USER kubespawn
 EXPOSE 8080
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/app.jar"]
