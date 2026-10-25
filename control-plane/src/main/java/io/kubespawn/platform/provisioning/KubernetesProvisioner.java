@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 import java.util.function.BooleanSupplier;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
@@ -37,6 +38,7 @@ public class KubernetesProvisioner implements ProvisioningGateway {
     static final String OWNER="kubespawn.io/environment-id";
     static final String FENCE="kubespawn.io/fencing-token";
     static final String APPLICATION_SPEC_HASH="kubespawn.io/application-spec-sha256";
+    static final Pattern PREVIEW_ASSET=Pattern.compile("(?:src|href)=\\\"([^\\\"]*assets/[^\\\"]+)\\\"");
     private final ProvisioningSettings settings;
     private final ObjectMapper json;
     private final KubernetesClient client;
@@ -235,9 +237,16 @@ public class KubernetesProvisioner implements ProvisioningGateway {
         try {
             URI target=URI.create(settings.previewInternalUrl(environment));
             int denied=http.send(HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(5)).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
-            int allowed=http.send(HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(5))
-                .header("Cookie","kubespawn_preview="+token).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
-            return denied==401 && allowed>=200 && allowed<400;
+            String cookie="kubespawn_preview="+token;
+            var page=http.send(HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(5))
+                .header("Cookie",cookie).GET().build(),HttpResponse.BodyHandlers.ofString());
+            var asset=PREVIEW_ASSET.matcher(page.body());
+            if (denied!=401 || page.statusCode()<200 || page.statusCode()>=400 || !asset.find()) return false;
+            int assetStatus=http.send(HttpRequest.newBuilder(target.resolve(asset.group(1))).timeout(Duration.ofSeconds(5))
+                .header("Cookie",cookie).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+            int apiStatus=http.send(HttpRequest.newBuilder(target.resolve("api/v1/platform")).timeout(Duration.ofSeconds(5))
+                .header("Cookie",cookie).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+            return assetStatus>=200 && assetStatus<400 && apiStatus>=200 && apiStatus<400;
         } catch (Exception unavailable) {
             if (unavailable instanceof InterruptedException) Thread.currentThread().interrupt();
             return false;
