@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.kubespawn.platform.config.SecurityConfig;
@@ -52,5 +53,13 @@ class OidcSecurityTest {
         mvc.perform(get("/api/v1/platform").header("Authorization",
             "Bearer local-token-not-accepted-in-oidc-mode"))
             .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void lifecycleMutationsRemainDisabledOutsideLocalMode() throws Exception {
+        mvc.perform(post("/api/v1/environments").with(jwt().authorities(
+            new SimpleGrantedAuthority("SCOPE_environments:read"),
+            new SimpleGrantedAuthority("SCOPE_environments:write"))))
+            .andExpect(status().isForbidden());
     }
 }

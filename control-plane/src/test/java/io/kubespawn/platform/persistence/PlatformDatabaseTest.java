@@ -21,7 +21,8 @@ import org.testcontainers.utility.DockerImageName;
 @Tag("integration")
 @Testcontainers
 @SpringBootTest(properties = {
-    "spring.profiles.active=local", "KUBESPAWN_DEV_TOKEN=integration-test-token-with-at-least-32-characters"
+    "spring.profiles.active=local", "KUBESPAWN_DEV_TOKEN=integration-test-token-with-at-least-32-characters",
+    "kubespawn.lifecycle.expiry.enabled=false"
 })
 class PlatformDatabaseTest {
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
@@ -40,7 +41,7 @@ class PlatformDatabaseTest {
     @Test
     void flywayCreatesTheDurableFoundation() {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-            .isEqualTo(1);
+            .isEqualTo(2);
         for (String table : new String[] {"environment_sources", "environments", "jobs", "outbox_events", "audit_events"}) {
             assertThat(jdbc.queryForObject("SELECT to_regclass(?) IS NOT NULL", Boolean.class, table)).isTrue();
         }

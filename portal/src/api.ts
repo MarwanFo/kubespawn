@@ -17,16 +17,52 @@ export interface Environment {
   servingRevision: string | null;
   createdAt: string;
   expiresAt: string;
+  requestedRef: string;
+  intentVersion: number;
 }
 
 export interface EnvironmentPage { items: Environment[] }
 
-export async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { Accept: 'application/json' } });
+export interface CreateEnvironment { repository: string; ref: string; ttlHours: number }
+export interface MutationResult { environment: Environment; operationId: string }
+export interface AuditEvent { id: string; action: string; actor: string; requestId: string; createdAt: string }
+
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) { super(message); }
+}
+
+export async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, {
+    ...options,
+    signal: AbortSignal.timeout(15_000),
+    headers: { Accept: 'application/json', ...options.headers },
+  });
   if (!response.ok) {
-    throw new Error(response.status === 401
+    const problem = await response.json().catch(() => null) as { detail?: string } | null;
+    throw new ApiError(response.status === 401
       ? 'API authentication failed. Check the local token in .env and restart the portal.'
-      : `API request failed (${response.status}). Check the backend and database.`);
+      : problem?.detail || `API request failed (${response.status}). Check the backend and database.`, response.status);
   }
   return response.json() as Promise<T>;
+}
+
+export function getJson<T>(path: string): Promise<T> { return requestJson<T>(path); }
+
+export function createEnvironment(body: CreateEnvironment, key: string): Promise<MutationResult> {
+  return requestJson('/api/v1/environments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify(body),
+  });
+}
+
+export function extendEnvironment(environment: Environment, expiresAt: string): Promise<MutationResult> {
+  return requestJson(`/api/v1/environments/${environment.id}/expiry`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': `"${environment.intentVersion}"` },
+    body: JSON.stringify({ expiresAt }),
+  });
+}
+
+export function deleteEnvironment(environment: Environment): Promise<MutationResult> {
+  return requestJson(`/api/v1/environments/${environment.id}`, {
+    method: 'DELETE', headers: { 'If-Match': `"${environment.intentVersion}"` },
+  });
 }

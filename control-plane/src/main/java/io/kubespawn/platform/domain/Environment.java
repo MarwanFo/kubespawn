@@ -19,6 +19,8 @@ public class Environment {
     private String repository;
     @Column(nullable = false)
     private String namespace;
+    @Column(name = "requested_ref", nullable = false)
+    private String requestedRef;
     @Column(name = "desired_state", nullable = false)
     private String desiredState;
     @Column(nullable = false)
@@ -40,6 +42,8 @@ public class Environment {
     public UUID getId() { return id; }
     public String getRepository() { return repository; }
     public String getNamespace() { return namespace; }
+    public String getRequestedRef() { return requestedRef; }
+    public long getIntentVersion() { return intentVersion; }
     public String getDesiredState() { return desiredState; }
     public String getPhase() { return phase; }
     public String getRequestedRevision() { return requestedRevision; }

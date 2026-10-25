@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -59,7 +60,8 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-                .requestMatchers("/api/v1/**").hasAuthority("SCOPE_environments:read")
+                .requestMatchers(HttpMethod.GET, "/api/v1/**").hasAuthority("SCOPE_environments:read")
+                .requestMatchers("/api/v1/**").hasAuthority("LOCAL_LIFECYCLE_WRITE")
                 .anyRequest().authenticated())
             .exceptionHandling(errors -> errors.authenticationEntryPoint(
                 (request, response, exception) -> response.sendError(401)));
@@ -77,8 +79,16 @@ public class SecurityConfig {
                 FilterChain chain) throws ServletException, IOException {
             String supplied = request.getHeader("Authorization");
             if (supplied != null && MessageDigest.isEqual(expected, supplied.getBytes(StandardCharsets.UTF_8))) {
+                String origin = request.getHeader("Origin");
+                boolean mutation = !List.of("GET", "HEAD", "OPTIONS").contains(request.getMethod());
+                // Local proxies insert credentials: browser mutations must originate at that proxy's host.
+                if (mutation && origin != null && !origin.equals(request.getScheme() + "://" + request.getHeader("Host"))) {
+                    response.sendError(403);
+                    return;
+                }
                 var authentication = new UsernamePasswordAuthenticationToken("local-developer", null,
-                    List.of(new SimpleGrantedAuthority("SCOPE_environments:read")));
+                    List.of(new SimpleGrantedAuthority("SCOPE_environments:read"),
+                        new SimpleGrantedAuthority("LOCAL_LIFECYCLE_WRITE")));
                 var context = SecurityContextHolder.createEmptyContext();
                 context.setAuthentication(authentication);
                 SecurityContextHolder.setContext(context);

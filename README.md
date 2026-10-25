@@ -2,7 +2,7 @@
 
 An internal developer platform for disposable pull-request environments.
 
-**Current milestone: runnable project foundation.** The Spring Boot API, PostgreSQL migrations, authenticated environment inventory, and React portal are connected. Preview creation, GitHub webhooks, build verification, the lifecycle controller, Argo CD installation, and cloud deployment are subsequent milestones. The portal deliberately shows an empty inventory and a disabled Spawn action until those features exist.
+**Current milestone: manual lifecycle intents.** The portal can create an environment request, extend its expiry, request deletion, and show audit activity. Requests are stored transactionally with durable jobs and outbox events. They start in `WAITING_BUILD`; Kubernetes provisioning, verified builds, Argo CD installation, and cloud deployment are subsequent milestones. Deletion remains `TERMINATING` until a future worker verifies cleanup.
 
 ## Start locally on Windows
 
@@ -76,12 +76,18 @@ Gradle Wrapper 9.8.2 is included with its distribution SHA-256. npm and Gradle d
 | `GET /actuator/health/readiness` | Public | Includes the database readiness check |
 | `GET /api/v1/platform` | Bearer | Foundation capabilities and controller availability |
 | `GET /api/v1/environments?limit=50` | Bearer | Latest recorded environments, maximum 100; no seed data |
+| `POST /api/v1/environments` | Local bearer | Create a `WAITING_BUILD` request; requires a UUID `Idempotency-Key` |
+| `GET /api/v1/environments/{id}` | Local bearer, owner | Current intent with its quoted version in `ETag` |
+| `PATCH /api/v1/environments/{id}/expiry` | Local bearer, owner | Extend absolute expiry; requires quoted `If-Match` |
+| `DELETE /api/v1/environments/{id}` | Local bearer, owner | Request absence and queue teardown; requires quoted `If-Match` |
+| `GET /api/v1/environments/{id}/audit` | Local bearer, owner | Latest 50 audit events |
+| `GET /api/v1/operations/{id}` | Local bearer, owner | Durable operation state; jobs remain pending without a worker |
 | `GET /actuator/prometheus` | Bearer | Micrometer metrics; restrict access further before deployment |
 
-Creation, mutation, log streaming, and cursor pagination are intentionally absent until their lifecycle and authorization contracts are implemented. No endpoint pretends to provision Kubernetes resources.
+Mutations return `202 Accepted` with an environment snapshot and `operationId`. They record intent rather than claiming provisioning or removal. Initial TTL is 1–24 hours; extensions are bounded by 72 hours from creation. The local expiry scanner runs every 30 seconds and requests absence for expired records. It never claims to delete Kubernetes resources. Stale versions return 412, missing version preconditions return 428, and deleted/expired requests cannot be reactivated. See [the lifecycle contract](docs/lifecycle-intents.md).
 
-The local profile accepts the generated development token. Outside that explicit profile, the API requires an OIDC issuer (`OIDC_ISSUER_URI`) and the `environments:read` token scope. Production audience validation, repository/team authorization, browser OIDC login, private preview authorization, and tenancy enforcement remain required before deployment. The default profile never falls back to the development token.
+The local profile accepts the generated development token and represents one trusted local developer. The new lifecycle detail/mutation routes are available only in that profile. Outside it, only the earlier inventory/platform reads are supported; the API requires an OIDC issuer (`OIDC_ISSUER_URI`) and the `environments:read` token scope. JWT read/write scopes cannot enable local mutations. Production audience validation, repository/team authorization, browser OIDC login, private preview authorization, and tenancy enforcement remain required before deployment. The default profile never falls back to the development token.
 
-The Compose portal is a **local development proxy** that inserts that token. Do not expose or reuse this proxy configuration as a production deployment. Production browser authentication needs its own implementation. The local stack has no Kubernetes credentials and cannot create a preview cluster.
+The Compose portal is a **local development proxy** that inserts that token. Browser mutations must have an Origin matching the proxy's forwarded Host; the local Vite and Compose proxies preserve it. Do not expose or reuse this proxy configuration as a production deployment. Production browser authentication needs its own implementation. The local stack has no Kubernetes credentials and cannot create a preview cluster.
 
-See [implementation status](docs/implementation-status.md), [local verification results](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).
+See [implementation status](docs/implementation-status.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).

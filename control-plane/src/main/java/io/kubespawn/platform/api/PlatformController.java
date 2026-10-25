@@ -24,9 +24,11 @@ public class PlatformController {
     @GetMapping("/platform")
     public PlatformStatus platform() {
         boolean local = Arrays.asList(configuration.getActiveProfiles()).contains("local");
-        return new PlatformStatus("KubeSpawn", "0.1.0", local ? "local" : "oidc", false,
-            List.of("environment-inventory", "database-migrations", "health-probes", "prometheus"),
-            "Verified builds and the environment lifecycle controller");
+        var capabilities = local
+            ? List.of("environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "health-probes", "prometheus")
+            : List.of("environment-inventory", "health-probes", "prometheus");
+        return new PlatformStatus("KubeSpawn", "0.2.0", local ? "local" : "oidc", false,
+            capabilities, "Verified builds and the environment lifecycle worker");
     }
 
     @GetMapping("/environments")
