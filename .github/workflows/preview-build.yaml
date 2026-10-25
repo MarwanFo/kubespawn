@@ -1,0 +1,185 @@
+name: Build verified preview images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full source SHA pinned by KubeSpawn
+        required: true
+        type: string
+      request_id:
+        description: KubeSpawn build request UUID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-build-${{ inputs.request_id || github.sha }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+  REQUEST_ID: ${{ inputs.request_id || '' }}
+
+jobs:
+  build:
+    if: vars.KUBESPAWN_PUBLISH_IMAGES == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - component: api
+            context: control-plane
+          - component: web
+            context: portal
+    permissions:
+      contents: read
+    steps:
+      - name: Validate source identity
+        shell: bash
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$REQUEST_ID" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]
+          fi
+          touch "$RUNNER_TEMP/kubespawn-empty-ignore"
+          printf '{}\n' > "$RUNNER_TEMP/kubespawn-trivy.yaml"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - if: matrix.component == 'api'
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify backend source
+        if: matrix.component == 'api'
+        working-directory: control-plane
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon test integrationTest bootJar
+      - if: matrix.component == 'web'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Verify portal source
+        if: matrix.component == 'web'
+        working-directory: portal
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+      - name: Build OCI archive with SBOM and provenance
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          outputs: type=oci,dest=${{ runner.temp }}/${{ matrix.component }}.tar
+          sbom: true
+          provenance: mode=max
+          push: false
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
+      - name: Select the runtime image for vulnerability scanning
+        shell: bash
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends skopeo
+          skopeo --override-os linux --override-arch amd64 copy \
+            "oci-archive:$RUNNER_TEMP/$COMPONENT.tar" "docker-archive:$RUNNER_TEMP/$COMPONENT-scan.tar:scan"
+      - name: Reject HIGH and CRITICAL findings, including unfixed findings
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          version: v0.69.3
+          scan-type: image
+          input: ${{ runner.temp }}/${{ matrix.component }}-scan.tar
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: '1'
+          scanners: vuln
+          trivy-config: ${{ runner.temp }}/kubespawn-trivy.yaml
+        env:
+          TRIVY_IGNOREFILE: ${{ runner.temp }}/kubespawn-empty-ignore
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: preview-oci-${{ matrix.component }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/${{ matrix.component }}.tar
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    steps:
+      # This runner never checks out or executes application code.
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: preview-oci-api-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/api
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: preview-oci-web-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web
+      - name: Publish complete OCI indexes and verify registry digests
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends skopeo
+          export REGISTRY_AUTH_FILE="$RUNNER_TEMP/registry-auth.json"
+          trap 'rm -f "$REGISTRY_AUTH_FILE"' EXIT
+          printf '%s' "$GHCR_TOKEN" | skopeo login --username "$GHCR_USER" --password-stdin ghcr.io
+          image_base="ghcr.io/${GITHUB_REPOSITORY,,}-preview"
+          for component in api web; do
+            image="$image_base-$component"
+            tag="run-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
+            skopeo copy --all --preserve-digests --digestfile "$RUNNER_TEMP/$component.digest" \
+              "oci-archive:$RUNNER_TEMP/$component/$component.tar" "docker://$image:$tag"
+            digest="$(cat "$RUNNER_TEMP/$component.digest")"
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+            actual="$(skopeo inspect --raw "docker://$image@$digest" | sha256sum | cut -d ' ' -f 1)"
+            [[ "sha256:$actual" == "$digest" ]]
+          done
+      - name: Write the authoritative build result
+        shell: python
+        env:
+          REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          import json, os, pathlib, re
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          images = {}
+          for component in ('api', 'web'):
+              digest = (root / (component + '.digest')).read_text().strip()
+              assert re.fullmatch(r'sha256:[a-f0-9]{64}', digest)
+              images[component] = {'repository': 'ghcr.io/' + os.environ['GITHUB_REPOSITORY'].lower() + '-preview-' + component, 'digest': digest}
+          result = {'schemaVersion': 1, 'repositoryId': int(os.environ['REPOSITORY_ID']),
+              'repository': os.environ['GITHUB_REPOSITORY'].lower(), 'sourceSha': os.environ['SOURCE_SHA'],
+              'requestId': os.environ['REQUEST_ID'], 'runId': int(os.environ['GITHUB_RUN_ID']),
+              'runAttempt': int(os.environ['GITHUB_RUN_ATTEMPT']), 'images': images,
+              'evidence': {'scanPolicy': 'trivy-high-critical-no-ignore-v1', 'sbom': 'buildkit-spdx', 'provenance': 'buildkit-max'}}
+          (root / 'build-result.json').write_text(json.dumps(result, sort_keys=True) + '\n')
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: kubespawn-build-result-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/build-result.json
+          retention-days: 30
+          if-no-files-found: error

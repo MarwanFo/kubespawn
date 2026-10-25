@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Box, Clock3, History, Trash2 } from 'lucide-react';
 import { deleteEnvironment, extendEnvironment, getJson } from './api';
-import type { AuditEvent, Environment, Operation } from './api';
+import type { AuditEvent, BuildProgress, Environment, Operation } from './api';
 
-export function EnvironmentCard({ environment, canManage, operation, trackProgress }: {
-  environment: Environment; canManage: boolean; operation?: Operation; trackProgress: boolean;
+export function EnvironmentCard({ environment, canManage, operation, trackProgress, build }: {
+  environment: Environment; canManage: boolean; operation?: Operation; trackProgress: boolean; build?: BuildProgress;
 }) {
   const client = useQueryClient();
   const [showAudit, setShowAudit] = useState(false);
@@ -25,6 +25,7 @@ export function EnvironmentCard({ environment, canManage, operation, trackProgre
       setConfirmDelete(false);
       void client.invalidateQueries({ queryKey: ['environments'] });
       void client.invalidateQueries({ queryKey: ['operations'] });
+      void client.invalidateQueries({ queryKey: ['github-builds'] });
       void client.invalidateQueries({ queryKey: ['audit', environment.id] });
     },
   });
@@ -32,6 +33,7 @@ export function EnvironmentCard({ environment, canManage, operation, trackProgre
   const unexpired = Date.parse(environment.expiresAt) > Date.now();
   const canExtend = active && unexpired && Date.parse(environment.expiresAt) < Date.parse(environment.createdAt) + 72 * 3_600_000 - 1000;
   const phase = environment.phase === 'WAITING_BUILD' ? 'Waiting for build'
+    : environment.phase === 'QUEUED' ? 'Provisioning pending'
     : environment.phase === 'TERMINATING' ? 'Deletion requested' : environment.phase.replaceAll('_', ' ').toLowerCase();
   const currentOperation = operation?.intentVersion === environment.intentVersion ? operation : undefined;
   const operationState = currentOperation?.state === 'WAITING' ? 'Waiting for prerequisite'
@@ -39,11 +41,23 @@ export function EnvironmentCard({ environment, canManage, operation, trackProgre
     : currentOperation?.state === 'PENDING' ? 'Queued'
     : currentOperation?.state === 'FAILED' ? 'Needs attention'
     : currentOperation?.state.toLowerCase();
+  const buildVerified = build?.state === 'VERIFIED';
+  const buildLabel: Record<string, string> = {
+    GITHUB_SETUP_REQUIRED: 'GitHub App setup required', REPOSITORY_NOT_ENROLLED: 'Repository approval required',
+    REPOSITORY_DISABLED: 'Repository access paused', RESOLVING_SOURCE: 'Resolving source commit',
+    BUILD_REQUESTED: 'Build queued', BUILDING: 'Waiting for successful CI and verification',
+    BUILD_DISPATCH_FAILED: 'Build dispatch needs attention', VERIFIED: 'Build verified',
+  };
 
   return <article className="environment-card">
     <div className="environment-main"><span className="environment-icon"><Box size={21} /></span><div className="environment-identity"><strong>{environment.repository}</strong><span>{environment.requestedRef} <span aria-hidden="true">·</span> v{environment.intentVersion}</span></div><span className={`phase-badge ${active ? 'waiting' : 'terminating'}`}>{phase}</span></div>
     <div className="environment-meta"><span title={environment.namespace}>{environment.namespace}</span><span><Clock3 size={12} />Expires {new Date(environment.expiresAt).toLocaleString()}</span></div>
-    <p className="environment-explanation">{active ? 'Request saved. Build verification and Kubernetes provisioning are pending.' : 'Absence recorded. Cleanup is pending; removal has not been confirmed.'}</p>
+    <p className="environment-explanation">{active ? buildVerified ? 'Build verified. Kubernetes provisioning is pending.' : 'Request saved. Waiting for trusted GitHub build evidence.' : 'Absence recorded. Cleanup is pending; removal has not been confirmed.'}</p>
+    {active && build && <div className={`build-progress ${buildVerified ? 'build-verified' : ''}`}>
+      <div className="operation-heading"><strong>{buildLabel[build.state] ?? 'Checking build verification'}</strong>{build.runUrl && <a href={build.runUrl} target="_blank" rel="noreferrer">View verified run ↗</a>}</div>
+      <p>{build.sourceSha ? <>Pinned commit <code title={build.sourceSha}>{build.sourceSha.slice(0, 12)}</code></> : 'The source commit has not been resolved yet.'}</p>
+      {buildVerified && <div className="build-images"><code>{build.apiImage}@{build.apiDigest}</code><code>{build.webImage}@{build.webDigest}</code></div>}
+    </div>}
     {trackProgress && <div className={`operation-progress ${currentOperation?.state === 'FAILED' ? 'operation-failed' : ''}`}>
       {currentOperation ? <><div className="operation-heading"><strong>{operationState}</strong><span>Operation {currentOperation.id.slice(0, 8)}</span></div>
         <p>{currentOperation.message}</p>

@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.Customizer;
@@ -27,6 +28,18 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Configuration
 public class SecurityConfig {
+
+    @Bean
+    @Order(0)
+    SecurityFilterChain githubWebhooks(HttpSecurity http) throws Exception {
+        http.securityMatcher("/integrations/github/**")
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -> auth.requestMatchers(HttpMethod.POST,"/integrations/github/webhook").permitAll()
+                .anyRequest().denyAll());
+        // The receiver authenticates the exact raw bytes with its dedicated HMAC secret.
+        return http.build();
+    }
 
     @Bean
     @Profile("local")

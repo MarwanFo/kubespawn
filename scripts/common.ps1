@@ -5,7 +5,10 @@ $script:ProjectRoot = Split-Path -Parent $PSScriptRoot
 function Import-LocalEnvironment {
     $taskEnvFile = Join-Path $script:ProjectRoot '.env'
     if (-not (Test-Path -LiteralPath $taskEnvFile)) { throw 'Run ./scripts/setup.ps1 first.' }
-    foreach ($taskLine in Get-Content -LiteralPath $taskEnvFile) {
+    $taskEnvFiles = @($taskEnvFile)
+    $taskGithubEnvFile = Join-Path $script:ProjectRoot '.env.github'
+    if (Test-Path -LiteralPath $taskGithubEnvFile) { $taskEnvFiles += $taskGithubEnvFile }
+    foreach ($taskLine in Get-Content -LiteralPath $taskEnvFiles) {
         if ($taskLine -match '^([A-Z][A-Z0-9_]*)=(.*)$') {
             [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
         }

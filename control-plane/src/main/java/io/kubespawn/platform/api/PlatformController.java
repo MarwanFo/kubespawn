@@ -25,11 +25,12 @@ public class PlatformController {
     public PlatformStatus platform() {
         boolean local = Arrays.asList(configuration.getActiveProfiles()).contains("local");
         var capabilities = local
-            ? List.of("environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "job-processing", "health-probes", "prometheus")
+            ? List.of("environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "job-processing", "github-builds", "health-probes", "prometheus")
             : List.of("environment-inventory", "health-probes", "prometheus");
         boolean worker = local && configuration.getProperty("kubespawn.worker.enabled", Boolean.class, true);
-        return new PlatformStatus("KubeSpawn", "0.3.0", local ? "local" : "oidc", false, worker,
-            capabilities, "Trusted build verification and Kubernetes integration");
+        boolean github=configuration.getProperty("kubespawn.github.enabled",Boolean.class,false);
+        return new PlatformStatus("KubeSpawn", "0.4.0", local ? "local" : "oidc", false, worker, github,
+            capabilities, "Connect the GitHub App, then integrate Kubernetes provisioning");
     }
 
     @GetMapping("/environments")
@@ -38,6 +39,6 @@ public class PlatformController {
     }
 
     public record PlatformStatus(String name, String version, String mode, boolean controllerEnabled,
-            boolean workerEnabled, List<String> capabilities, String nextMilestone) {}
+            boolean workerEnabled, boolean githubConfigured, List<String> capabilities, String nextMilestone) {}
     public record EnvironmentPage(List<EnvironmentSummary> items) {}
 }

@@ -1,0 +1,14 @@
+# Optional overlay: --env-file .env --env-file .env.github -f compose.yaml -f compose.github.yaml
+services:
+  api:
+    environment:
+      GITHUB_ENABLED: 'true'
+      GITHUB_APP_ID: ${GITHUB_APP_ID:?Configure .env.github first}
+      GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github_app_key
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?Configure .env.github first}
+    secrets:
+      - github_app_key
+
+secrets:
+  github_app_key:
+    file: ${GITHUB_APP_PRIVATE_KEY_FILE:?Set the host private-key file path in .env.github}

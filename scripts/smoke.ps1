@@ -16,6 +16,13 @@ $taskPlatform = Invoke-RestMethod "$taskApi/api/v1/platform" -Headers $taskHeade
 if ($taskPlatform.controllerEnabled) { throw 'Foundation unexpectedly reports a provisioning controller.' }
 if ($taskPlatform.capabilities -notcontains 'job-processing') { throw 'Local API does not expose worker progress.' }
 $taskOperations = Invoke-RestMethod "$taskApi/api/v1/operations" -Headers $taskHeaders
+$taskGithubStatus = Invoke-RestMethod "$taskApi/api/v1/github/status" -Headers $taskHeaders
+$taskBuilds = Invoke-RestMethod "$taskApi/api/v1/github/environment-builds" -Headers $taskHeaders
+if ($taskGithubStatus.configured -ne $taskPlatform.githubConfigured) { throw 'GitHub configuration status is inconsistent.' }
+$taskWebhookProbe = Invoke-WebRequest "$taskApi/integrations/github/webhook" -Method Post -ContentType 'application/json' -Body '{}' `
+    -Headers @{ Authorization = "Bearer $env:KUBESPAWN_DEV_TOKEN"; 'X-GitHub-Delivery' = [Guid]::NewGuid().ToString(); 'X-GitHub-Event' = 'ping' } -SkipHttpErrorCheck
+$taskExpectedWebhookStatus = if ($taskGithubStatus.configured) { 401 } else { 503 }
+if ($taskWebhookProbe.StatusCode -ne $taskExpectedWebhookStatus) { throw 'Webhook signature/setup gate did not reject the probe.' }
 $taskInventory = Invoke-RestMethod "$taskApi/api/v1/environments" -Headers $taskHeaders
 $taskUnauthorized = Invoke-WebRequest "$taskApi/api/v1/environments" -SkipHttpErrorCheck
 if ($taskUnauthorized.StatusCode -ne 401) { throw 'Unauthenticated API request was not rejected.' }
@@ -24,4 +31,4 @@ $taskHtml = Invoke-WebRequest $taskPortal
 if ($taskHtml.Content -notmatch 'KubeSpawn') { throw 'Portal HTML was not served.' }
 $taskProxy = Invoke-RestMethod "$taskPortal/api/v1/platform"
 if ($taskProxy.name -ne 'KubeSpawn') { throw 'Portal-to-API proxy is not working.' }
-Write-Host "Smoke checks passed: database readiness, bearer authentication, inventory ($($taskInventory.items.Count)), operation progress ($(@($taskOperations).Count)), portal, and API proxy."
+Write-Host "Smoke checks passed: database readiness, bearer authentication, inventory ($($taskInventory.items.Count)), operation progress ($(@($taskOperations).Count)), build progress ($(@($taskBuilds).Count)), webhook gate, portal, and API proxy."

@@ -1,6 +1,7 @@
 package io.kubespawn.platform.worker;
 
 import io.kubespawn.platform.lifecycle.LifecycleException;
+import io.kubespawn.platform.github.GitHubStore;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -17,8 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class JobStore {
     private final JdbcTemplate jdbc;
     private final WorkerSettings settings;
+    private final GitHubStore github;
 
-    public JobStore(JdbcTemplate jdbc, WorkerSettings settings) { this.jdbc = jdbc; this.settings = settings; }
+    public JobStore(JdbcTemplate jdbc, WorkerSettings settings, GitHubStore github) { this.jdbc = jdbc; this.settings = settings; this.github=github; }
 
     public record Operation(UUID id, UUID environmentId, String type, String state, long intentVersion,
             int attempts, int failureCount, String reason, String message, Instant createdAt, Instant updatedAt,
@@ -28,7 +30,7 @@ public class JobStore {
     public Optional<JobLease> claim(String worker) {
         List<JobLease> candidates = jdbc.query("""
             SELECT j.* FROM jobs j WHERE j.state IN ('PENDING', 'WAITING')
-                AND j.available_at <= clock_timestamp() AND j.environment_id IS NOT NULL
+                AND j.available_at <= clock_timestamp()
                 AND NOT EXISTS (SELECT 1 FROM environment_work_leases l
                     WHERE l.environment_id=j.environment_id AND l.expires_at > clock_timestamp())
             ORDER BY CASE WHEN j.job_type='TEARDOWN_ENVIRONMENT' THEN 0 ELSE 1 END, j.available_at, j.id
@@ -36,7 +38,7 @@ public class JobStore {
             """, (rs, row) -> new JobLease(rs.getObject("id", UUID.class), rs.getObject("environment_id", UUID.class),
                 rs.getString("job_type"), rs.getLong("intent_version"), worker, rs.getLong("lease_token") + 1, 0));
         for (JobLease candidate : candidates) {
-            List<Long> tokens = jdbc.query("""
+            List<Long> tokens = candidate.environmentId()==null ? List.of(0L) : jdbc.query("""
                 INSERT INTO environment_work_leases(environment_id, job_id, worker_id, fencing_token, expires_at)
                 VALUES (?, ?, ?, 1, clock_timestamp() + ?::bigint * interval '1 millisecond')
                 ON CONFLICT (environment_id) DO UPDATE SET job_id=excluded.job_id, worker_id=excluded.worker_id,
@@ -73,7 +75,7 @@ public class JobStore {
     @Transactional
     public boolean renew(JobLease lease) {
         if (!fenced(lease)) return false;
-        jdbc.update("""
+        if (lease.environmentId()!=null) jdbc.update("""
             UPDATE environment_work_leases SET expires_at=clock_timestamp() + ?::bigint * interval '1 millisecond'
             WHERE environment_id=?
             """, settings.lease().toMillis(), lease.environmentId());
@@ -90,11 +92,18 @@ public class JobStore {
         JobProcessor.Intent intent = intent(lease);
         if (!fenced(lease)) return false;
         if (stale(lease, intent)) { supersede(lease); return true; }
+        boolean complete=decision.verified()!=null || decision.dispatchedRequestId()!=null;
+        if (decision.source()!=null && !github.bind(lease.environmentId(),decision.source())) {
+            decision=new JobProcessor.Decision("REPOSITORY_POLICY_CHANGED","Repository policy changed. Waiting for a fresh verification check.");
+        }
+        if (decision.verified()!=null && !github.verified(decision.verified(),lease.id())) { supersede(lease); return true; }
+        if (decision.dispatchedRequestId()!=null && !github.dispatched(decision.dispatchedRequestId(),lease.intentVersion())) { supersede(lease); return true; }
         jdbc.update("""
-            UPDATE jobs SET state='WAITING', reason=?, message=?, last_error=NULL,
+            UPDATE jobs SET state=?, reason=?, message=?, last_error=NULL,
                 available_at=clock_timestamp() + ?::bigint * interval '1 millisecond',
+                finished_at=CASE WHEN ? THEN clock_timestamp() ELSE NULL END,
                 updated_at=clock_timestamp(), lease_owner=NULL, lease_expires_at=NULL WHERE id=?
-            """, decision.reason(), decision.message(), settings.prerequisiteDelay().toMillis(), lease.id());
+            """, complete ? "COMPLETE" : "WAITING", decision.reason(), decision.message(), settings.prerequisiteDelay().toMillis(),complete, lease.id());
         release(lease);
         return true;
     }
@@ -152,6 +161,8 @@ public class JobStore {
             SELECT id FROM jobs WHERE id=? AND state='RUNNING' AND lease_owner=? AND lease_token=?
                 AND environment_lease_token=? AND lease_expires_at > clock_timestamp() FOR UPDATE
             """, (rs, row) -> rs.getObject(1, UUID.class), lease.id(), lease.workerId(), lease.jobToken(), lease.environmentToken()).isEmpty();
+        if (lease.environmentId()==null) return job && Boolean.TRUE.equals(jdbc.queryForObject(
+            "SELECT lease_expires_at>clock_timestamp() FROM jobs WHERE id=?",Boolean.class,lease.id()));
         boolean environment = job && !jdbc.query("""
             SELECT environment_id FROM environment_work_leases WHERE environment_id=? AND job_id=? AND worker_id=?
                 AND fencing_token=? AND expires_at > clock_timestamp() FOR UPDATE
@@ -164,9 +175,10 @@ public class JobStore {
     }
 
     private JobProcessor.Intent intent(JobLease lease) {
+        if (lease.environmentId()==null) return new JobProcessor.Intent(lease.intentVersion(),"BUILD","VERIFYING",null,null,null);
         return jdbc.queryForObject("""
-            SELECT intent_version, desired_state, phase, requested_revision FROM environments WHERE id=? FOR UPDATE
-            """, (rs, row) -> new JobProcessor.Intent(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4)), lease.environmentId());
+            SELECT intent_version, desired_state, phase, requested_revision, repository_name, requested_ref FROM environments WHERE id=? FOR UPDATE
+            """, (rs, row) -> new JobProcessor.Intent(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4),rs.getString(5),rs.getString(6)), lease.environmentId());
     }
 
     private boolean stale(JobLease lease, JobProcessor.Intent intent) {
@@ -180,6 +192,7 @@ public class JobStore {
             UPDATE jobs SET state='SUPERSEDED', reason='NEWER_INTENT', message='A newer intent replaced this operation.',
                 updated_at=clock_timestamp(), finished_at=clock_timestamp(), lease_owner=NULL, lease_expires_at=NULL WHERE id=?
             """, lease.id());
+        if (lease.environmentId()==null) github.rejected(lease.id());
         release(lease);
     }
 
@@ -199,6 +212,7 @@ public class JobStore {
                 finished_at=CASE WHEN ? THEN clock_timestamp() ELSE NULL END,
                 lease_owner=NULL, lease_expires_at=NULL WHERE id=?
             """, terminal ? "FAILED" : "PENDING", failures, code, message, code, retryDelay(failures), terminal, lease.id());
+        if (terminal && lease.environmentId()==null) github.rejected(lease.id());
         release(lease);
     }
 

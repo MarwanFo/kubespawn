@@ -55,9 +55,11 @@ public class JobRunner {
             task.cancel(true);
             if (valid.get()) store.fail(lease, "PROCESSING_TIMEOUT", true);
         } catch (ExecutionException failure) {
+            boolean rejected=failure.getCause() instanceof io.kubespawn.platform.github.VerificationRejected;
             if (valid.get()) store.fail(lease,
-                failure.getCause() instanceof UnsupportedOperationException ? "UNSUPPORTED_JOB_TYPE" : "PROCESSOR_ERROR",
-                !(failure.getCause() instanceof UnsupportedOperationException));
+                rejected ? ((io.kubespawn.platform.github.VerificationRejected)failure.getCause()).code()
+                    : failure.getCause() instanceof UnsupportedOperationException ? "UNSUPPORTED_JOB_TYPE" : "PROCESSOR_ERROR",
+                !rejected && !(failure.getCause() instanceof UnsupportedOperationException));
         } catch (CancellationException lostLease) {
             log.info("Job processing cancelled after losing its lease.");
         } catch (InterruptedException shutdown) {

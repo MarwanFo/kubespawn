@@ -15,6 +15,12 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice
 public class ApiErrors {
+    @ExceptionHandler(io.kubespawn.platform.github.VerificationRejected.class)
+    ProblemDetail verification(io.kubespawn.platform.github.VerificationRejected error) {
+        var problem=ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY,"GitHub repository or build evidence did not match the approved policy.");
+        problem.setTitle(error.code());
+        return problem;
+    }
     @ExceptionHandler(LifecycleException.class)
     ProblemDetail lifecycle(LifecycleException error, HttpServletRequest request) {
         var problem = ProblemDetail.forStatusAndDetail(error.status(), error.getMessage());

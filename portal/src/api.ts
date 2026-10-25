@@ -4,6 +4,7 @@ export interface PlatformStatus {
   mode: string;
   controllerEnabled: boolean;
   workerEnabled: boolean;
+  githubConfigured: boolean;
   capabilities: string[];
   nextMilestone: string;
 }
@@ -27,6 +28,17 @@ export interface EnvironmentPage { items: Environment[] }
 export interface CreateEnvironment { repository: string; ref: string; ttlHours: number }
 export interface MutationResult { environment: Environment; operationId: string }
 export interface AuditEvent { id: string; action: string; actor: string; requestId: string; createdAt: string }
+export interface BuildProgress {
+  environmentId: string;
+  state: string;
+  sourceSha: string | null;
+  runId: number | null;
+  runUrl: string | null;
+  apiImage: string | null;
+  apiDigest: string | null;
+  webImage: string | null;
+  webDigest: string | null;
+}
 export interface Operation {
   id: string;
   environmentId: string;

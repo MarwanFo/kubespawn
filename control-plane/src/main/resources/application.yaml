@@ -26,6 +26,13 @@ server:
     include-message: never
     include-stacktrace: never
 
+kubespawn:
+  github:
+    enabled: ${GITHUB_ENABLED:false}
+    app-id: ${GITHUB_APP_ID:}
+    private-key-file: ${GITHUB_APP_PRIVATE_KEY_FILE:}
+    webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+
 management:
   endpoints:
     web:

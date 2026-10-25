@@ -2,7 +2,7 @@
 
 An internal developer platform for disposable pull-request environments.
 
-**Current milestone: durable lifecycle worker.** The portal accepts create/extend/delete intents and shows operation progress and audit activity. A local worker claims durable jobs, renews leases, recovers interrupted work, backs off errors, and rejects results for superseded intents. Trusted build and cleanup integrations remain gated: requests stay `WAITING_BUILD`, and deletion stays `TERMINATING` until resource removal can be verified. No Kubernetes workloads are deployed yet.
+**Current milestone: GitHub build verification.** Enrolled manual requests can pin an approved branch to a full SHA, dispatch a reviewed workflow, and verify its successful image publication through GitHub's run/artifact APIs. The portal shows source/build progress and exact verified image digests. A build-ready request enters `QUEUED` while Kubernetes provisioning remains pending. New GitHub App setup is prepared but requires account registration, credentials, installation, and repository enrollment. Without that configuration, requests remain `WAITING_BUILD`. No Kubernetes workloads are deployed yet.
 
 ## Start locally on Windows
 
@@ -15,6 +15,8 @@ Requirements: PowerShell 7+, Node.js 22.12+, and Docker Desktop with Linux conta
 ```
 
 Open [the portal](http://localhost:5173). API readiness is at [localhost:8080/actuator/health/readiness](http://localhost:8080/actuator/health/readiness). The first start downloads images and builds both services. Setup generates a private, ignored `.env` with random local credentials and never replaces an existing file.
+
+To connect GitHub, follow [the new App setup guide](docs/github-setup.md). `./scripts/configure-github.ps1` prepares ignored configuration and a random webhook secret without enabling external access. The optional `compose.github.yaml` overlay mounts an operator-supplied private key; the normal Compose stack leaves GitHub disabled.
 
 Stop with `./scripts/stop.ps1`. It retains PostgreSQL data. PostgreSQL is exposed on localhost port 55432 to avoid common Windows reservations around 5432. Port overrides are in `.env`; changing database credentials after the volume has been initialized requires updating the database role as well. Restart the portal after changing the local API token.
 
@@ -83,14 +85,20 @@ Gradle Wrapper 9.8.2 is included with its distribution SHA-256. npm and Gradle d
 | `GET /api/v1/environments/{id}/audit` | Local bearer, owner | Latest 50 audit events |
 | `GET /api/v1/operations/{id}` | Local bearer, owner | Operation state, reason, attempts, failures, and timing |
 | `GET /api/v1/operations` | Local bearer, owner | Latest operation per environment, maximum 100 |
+| `GET /api/v1/github/status` | Local bearer | GitHub configuration and enrolled repository policies |
+| `POST /api/v1/github/repositories` | Local bearer | Validate App access and enroll a reviewed build policy |
+| `GET /api/v1/github/environment-builds` | Local bearer, owner | Pinned SHA, build progress, and verified image digests |
+| `POST /integrations/github/webhook` | Raw-body HMAC | Deduplicated run receipt and installation/removal events |
 | `GET /actuator/prometheus` | Bearer | Micrometer metrics; restrict access further before deployment |
 
 Mutations return `202 Accepted` with an environment snapshot and `operationId`. They record intent rather than claiming provisioning or removal. Initial TTL is 1–24 hours; extensions are bounded by 72 hours from creation. The local expiry scanner runs every 30 seconds and requests absence for expired records. It never claims to delete Kubernetes resources. Stale versions return 412, missing version preconditions return 428, and deleted/expired requests cannot be reactivated. See [the lifecycle contract](docs/lifecycle-intents.md).
 
 The local worker polls every 2 seconds. Expected prerequisite waits use `WAITING` and are checked again after 30 seconds; processing failures use bounded retries, and obsolete intents become `SUPERSEDED`. `workerEnabled` reports the configured scheduler separately from `controllerEnabled`, which remains false. It is not a worker liveness probe. See [worker behavior and recovery](docs/job-worker.md).
 
+GitHub delivery metadata is a wakeup rather than build authority. The verifier independently checks current run identity/attempt, approved workflow bytes, successful conclusion, source/request binding, complete image set, exact registry paths, and downloaded artifact SHA-256. A verified build alone cannot create or reactivate an environment. The supplied workflow runs tests/builds/scans without registry write permission and publishes from a separate runner. It is disabled until the repository variable `KUBESPAWN_PUBLISH_IMAGES` is explicitly enabled. See [the verification contract](docs/github-build-verification.md).
+
 The local profile accepts the generated development token and represents one trusted local developer. The new lifecycle detail/mutation routes are available only in that profile. Outside it, only the earlier inventory/platform reads are supported; the API requires an OIDC issuer (`OIDC_ISSUER_URI`) and the `environments:read` token scope. JWT read/write scopes cannot enable local mutations. Production audience validation, repository/team authorization, browser OIDC login, private preview authorization, and tenancy enforcement remain required before deployment. The default profile never falls back to the development token.
 
 The Compose portal is a **local development proxy** that inserts that token. Browser mutations must have an Origin matching the proxy's forwarded Host; the local Vite and Compose proxies preserve it. Do not expose or reuse this proxy configuration as a production deployment. Production browser authentication needs its own implementation. The local stack has no Kubernetes credentials and cannot create a preview cluster.
 
-See [implementation status](docs/implementation-status.md), [worker behavior](docs/job-worker.md), [worker verification](docs/worker-verification.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).
+See [implementation status](docs/implementation-status.md), [GitHub setup](docs/github-setup.md), [GitHub verification results](docs/github-verification.md), [worker behavior](docs/job-worker.md), [worker verification](docs/worker-verification.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).

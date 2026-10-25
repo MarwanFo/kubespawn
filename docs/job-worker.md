@@ -1,6 +1,6 @@
-# Durable lifecycle worker — v0.3.0
+# Durable lifecycle worker — v0.4.0
 
-The local worker consumes the jobs created by lifecycle transactions. It currently checks prerequisites: trusted build verification for reconciliation and verified resource removal for teardown. Neither integration exists yet, so it records `WAITING` with `BUILD_VERIFICATION_REQUIRED` or `CLEANUP_VERIFICATION_REQUIRED`. A ref or a populated commit SHA alone does not authorize deployment. Environment readiness and destruction are never inferred from job processing.
+The local worker consumes the jobs created by lifecycle transactions and the optional GitHub integration. Environment reconciliation resolves/pins an approved source and waits for trusted build evidence. With verified evidence it records `QUEUED` and waits for Kubernetes integration; teardown still waits with `CLEANUP_VERIFICATION_REQUIRED`. GitHub setup is disabled until credentials/enrollment are supplied. A ref or populated SHA alone does not authorize deployment. Environment readiness and destruction are never inferred from job processing.
 
 ## Queue and serialization
 
@@ -8,7 +8,9 @@ The scheduler runs only under the `local` profile and polls once every two secon
 
 Each claim also increments the job's lease token and attempt count. Both the job lease and environment lease identify the owning worker. Processing happens outside the claim transaction; a separate heartbeat renews both leases. Renewal and result persistence require matching ownership, both tokens, and unexpired leases. Lease time comes from PostgreSQL, not worker clocks. Released environment lease rows retain their fencing token permanently.
 
-The worker locks and checks the current environment intent before invoking the processor and again before saving its result or failure. An older version or incompatible desired state becomes `SUPERSEDED`; its result cannot overwrite a newer deletion or extension. The worker does not modify environment readiness or desired state.
+The worker locks and checks the current environment intent before invoking the processor and again before saving its result or failure. An older version or incompatible desired state becomes `SUPERSEDED`; its result cannot overwrite a newer deletion or extension. Source/build binding can advance WAITING_BUILD to QUEUED under that fence; it does not change desired state or claim readiness.
+
+Repository-level GitHub dispatch/verification jobs have no environment lease and use the same renewable job lease/fencing checks. They recheck enabled repository policy before persisting results. A verified build is repository evidence, not an environment-creation command. See [the GitHub contract](github-build-verification.md).
 
 ## States and failures
 
@@ -19,13 +21,13 @@ The worker locks and checks the current environment intent before invoking the p
 | `WAITING` | Expected prerequisite missing; check again after the prerequisite delay |
 | `SUPERSEDED` | A newer environment intent replaced this job; terminal |
 | `FAILED` | Unsupported job type or exhausted failure budget; terminal, requires operator attention |
-| `COMPLETE` | Reserved for future verified effects; the current gated processor never sets it |
+| `COMPLETE` | A repository build dispatch or verification result was durably acknowledged; no environment readiness claim |
 
 `attempts` counts claims, including prerequisite checks. `failureCount` counts processing errors, timeouts, and lease-expiry recoveries. Expected waits do not spend the failure budget. Retry delay uses exponential backoff with equal jitter, bounded by the configured maximum. Recovery of an obsolete job supersedes it without consuming the budget. Exceptions are mapped to controlled messages/codes; arbitrary exception text is not persisted or exposed to the browser.
 
 Expired workers cannot renew or acknowledge work. Expired jobs are requeued with backoff, or failed at the budget. Recovery releases an environment lease only if its old job, worker, and token still match; it cannot release a replacement worker's lease. Timeouts cancel the processor and schedule a fenced retry. Interrupted shutdown leaves durable work recoverable after lease expiry.
 
-This provides fenced database results and at-least-once processing. Cancellation cannot guarantee that an external request has stopped. Future GitHub/Kubernetes adapters must use idempotent effects, deterministic ownership, intent rechecks, and provider-side preconditions/fencing. No external effects are implemented in this milestone, and exactly-once delivery is not claimed. Outbox publishing remains a separate integration.
+This provides fenced database results and at-least-once processing. Cancellation cannot guarantee that an external request has stopped. GitHub dispatch may be repeated after an interrupted acknowledgement, using the same source/request identity; verification checks that binding. Future Kubernetes adapters must add idempotent effects, deterministic ownership, intent rechecks, and provider-side preconditions/fencing. Exactly-once delivery is not claimed. Outbox publishing remains a separate integration.
 
 ## Configuration
 
@@ -53,6 +55,6 @@ The portal polls progress every five seconds and displays only progress matching
 
 Run `./scripts/verify.ps1 -Integration` with Docker Desktop running. Worker tests use disposable PostgreSQL containers and cover concurrent claims, environment serialization, independent environments, lease renewal, stale ownership, crash retry limits, prerequisite waits, superseded results, deletion during processing, sanitized failures, unsupported types, timeout cancellation/heartbeats, and owner-scoped progress. Existing lifecycle and authentication tests remain part of the suite.
 
-The V3 migration adds worker metadata and a lease table without modifying V1/V2. Existing incomplete `RUNNING` rows are returned to `PENDING` during this one-time upgrade; deploy migrations with any older experimental workers stopped.
+The V3 migration added worker metadata and environment leases; V4 adds the GitHub policies/evidence and permits repository jobs under their own job lease. Earlier migrations remain unchanged. Existing incomplete `RUNNING` rows were returned to `PENDING` during V3's one-time upgrade; deploy that upgrade with any older experimental workers stopped.
 
 Sources: [PostgreSQL locking and SKIP LOCKED](https://www.postgresql.org/docs/17/sql-select.html), [conditional ON CONFLICT updates](https://www.postgresql.org/docs/17/sql-insert.html), [row-lock behavior](https://www.postgresql.org/docs/17/explicit-locking.html).

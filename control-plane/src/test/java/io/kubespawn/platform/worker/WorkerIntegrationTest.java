@@ -41,7 +41,7 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 @SpringBootTest(properties={
     "spring.profiles.active=local", "KUBESPAWN_DEV_TOKEN=integration-test-token-with-at-least-32-characters",
-    "kubespawn.lifecycle.expiry.enabled=false", "kubespawn.worker.enabled=false",
+    "kubespawn.lifecycle.expiry.enabled=false", "kubespawn.worker.enabled=false", "kubespawn.github.enabled=false",
     "kubespawn.worker.lease=PT3S", "kubespawn.worker.heartbeat=PT0.1S", "kubespawn.worker.timeout=PT2S"
 })
 @AutoConfigureMockMvc
@@ -69,8 +69,14 @@ class WorkerIntegrationTest {
     void isolateFixtures() throws Exception {
         jdbc.execute("TRUNCATE api_idempotency, environment_work_leases, jobs, audit_events, outbox_events, environments, environment_sources CASCADE");
         reset(processor);
-        when(processor.process(any(), any())).thenAnswer(call ->
-            new GatedJobProcessor().process(call.getArgument(0), call.getArgument(1)));
+        when(processor.process(any(), any())).thenAnswer(call -> {
+            JobLease lease=call.getArgument(0);
+            return switch (lease.type()) {
+                case "RECONCILE_ENVIRONMENT" -> waiting();
+                case "TEARDOWN_ENVIRONMENT" -> new JobProcessor.Decision("CLEANUP_VERIFICATION_REQUIRED","Waiting for the cleanup integration to verify resource removal.");
+                default -> throw new UnsupportedOperationException();
+            };
+        });
     }
 
     @Test

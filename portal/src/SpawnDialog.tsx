@@ -46,7 +46,7 @@ export function SpawnDialog({ open, onClose, onCreated }: Props) {
   }}>
     <form onSubmit={submit}>
       <div className="dialog-heading"><div><p className="eyebrow">NEW ENVIRONMENT REQUEST</p><h2 id="spawn-title">Give your branch a workspace.</h2></div><button type="button" className="icon-button" aria-label="Close spawn dialog" disabled={create.isPending} onClick={onClose}><X size={19} /></button></div>
-      <p className="dialog-description">Save a preview request now. It will wait for a verified build and the provisioning worker.</p>
+      <p className="dialog-description">Save a preview request. An enrolled repository's approved branch will be pinned to a commit and built through GitHub before provisioning.</p>
       <label htmlFor="repository">GitHub repository</label>
       <input id="repository" autoFocus required maxLength={255} pattern="[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+" placeholder="owner/repository" value={repository} onChange={event => setRepository(event.target.value)} disabled={create.isPending} />
       <label htmlFor="revision">Branch or revision</label>

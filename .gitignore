@@ -1,5 +1,6 @@
 .tools/
 .cache/
+.secrets/
 .env
 .env.*
 !.env.example
