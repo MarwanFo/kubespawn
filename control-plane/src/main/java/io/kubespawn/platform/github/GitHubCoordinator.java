@@ -38,7 +38,8 @@ public class GitHubCoordinator {
         require(!repo.path("fork").asBoolean(),"FORK_REJECTED");
         String head=resolve(proposed,proposed.branch());
         require(hash(github.workflow(proposed,head)).equals(proposed.workflowHash()),"WORKFLOW_NOT_APPROVED");
-        JsonNode workflow=github.get(proposed,"/repos/"+proposed.name()+"/actions/workflows/"+proposed.workflowPath());
+        String workflowFile=proposed.workflowPath().substring(proposed.workflowPath().lastIndexOf('/')+1);
+        JsonNode workflow=github.get(proposed,"/repos/"+proposed.name()+"/actions/workflows/"+workflowFile);
         require(workflow.path("path").asText().equals(proposed.workflowPath()) && workflow.path("state").asText().equals("active"),"WORKFLOW_NOT_ACTIVE");
         require(workflow.path("id").asLong()>0,"WORKFLOW_ID_MISSING");
         JsonNode chart=github.get(proposed,"/repos/"+proposed.name()+"/commits/"+value.chartRevision());

@@ -122,7 +122,10 @@ class GitHubIntegrationTest {
                 return value;
             }
             if (path.contains("/actions/runs/")) return run;
-            if (path.contains("/actions/workflows/")) return json.createObjectNode().put("id",303).put("path",".github/workflows/preview-build.yaml").put("state","active");
+            if (path.contains("/actions/workflows/")) {
+                assertThat(path).isEqualTo("/repos/example/app/actions/workflows/preview-build.yaml");
+                return json.createObjectNode().put("id",303).put("path",".github/workflows/preview-build.yaml").put("state","active");
+            }
             return json.createObjectNode().put("id",101).put("full_name","Example/App").put("fork",false);
         });
         when(github.artifact(any(),any(Long.class))).thenAnswer(call -> { byte[] bytes=archive(); if (corruptArchive) bytes[0]^=1; return bytes; });
