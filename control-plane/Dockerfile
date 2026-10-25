@@ -8,6 +8,8 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon bootJar
 
 FROM eclipse-temurin:21-jre-alpine@sha256:b48e02e0ea88d7bfb305335df94923bdef394905f4147dccd52e873cf17b1088
+# Patch CVE-2026-111497 until the upstream runtime image is rebuilt.
+RUN apk add --no-cache --upgrade 'brotli-libs=1.2.1-r0'
 RUN addgroup -S kubespawn && adduser -S kubespawn -G kubespawn
 WORKDIR /app
 COPY --from=build --chown=kubespawn:kubespawn /workspace/build/libs/control-plane-0.4.0-SNAPSHOT.jar app.jar
