@@ -64,6 +64,7 @@ export interface ProvisioningProgress {
   application: string;
   capacityReserved: boolean;
   observedAt: string | null;
+  previewUrl: string | null;
 }
 
 export function retryOperation(operation: Operation, environment: Environment): Promise<Operation> {
@@ -76,8 +77,13 @@ export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); }
 }
 
+function apiPath(path: string): string {
+  const preview = window.location.pathname.match(/^\/e\/[0-9a-f-]{36}(?:\/|$)/)?.[0];
+  return preview ? `${preview.replace(/\/$/, '')}${path}` : path;
+}
+
 export async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(apiPath(path), {
     ...options,
     signal: AbortSignal.timeout(15_000),
     headers: { Accept: 'application/json', ...options.headers },

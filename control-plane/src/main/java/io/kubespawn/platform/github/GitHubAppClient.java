@@ -125,7 +125,7 @@ public class GitHubAppClient implements GitHubGateway {
         try {
             var request=HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10))
                 .header("Accept", "application/vnd.github+json").header("X-GitHub-Api-Version", "2026-03-10")
-                .header("User-Agent", "KubeSpawn/0.4.0");
+                .header("User-Agent", "KubeSpawn/0.6.0");
             if (token!=null) request.header("Authorization", "Bearer " + token);
             if (body!=null) request.header("Content-Type", "application/json");
             return http.send(request.method(method, body==null ? HttpRequest.BodyPublishers.noBody()

@@ -5,12 +5,16 @@ import io.kubespawn.platform.worker.JobLease;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
+import io.kubespawn.platform.lifecycle.LifecycleException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ProvisioningStore {
+    public record Preview(String namespace, Instant expiresAt) {}
     private final JdbcTemplate jdbc;
     private final ProvisioningSettings settings;
     public ProvisioningStore(JdbcTemplate jdbc, ProvisioningSettings settings) { this.jdbc=jdbc; this.settings=settings; }
@@ -83,8 +87,19 @@ public class ProvisioningStore {
             jdbc.update("UPDATE environment_provisioning SET reserved=true WHERE environment_id=?",lease.environmentId());
             jdbc.update("UPDATE environments SET phase='TERMINATING',destroyed_at=NULL,updated_at=clock_timestamp() WHERE id=? AND desired_state='ABSENT'",lease.environmentId());
         } else {
-            int changed=jdbc.update("UPDATE environments SET phase='PROVISIONING',updated_at=clock_timestamp() WHERE id=? AND phase IN ('QUEUED','WAITING_BUILD')",lease.environmentId());
-            if (changed>0) event(lease,"PROVISIONING_STARTED");
+            if (result.ready()) {
+                int changed=jdbc.update("""
+                    UPDATE environments SET phase='READY',serving_revision=?,updated_at=clock_timestamp()
+                    WHERE id=? AND desired_state='ACTIVE' AND (phase<>'READY' OR serving_revision IS DISTINCT FROM ?)
+                    """,result.servingRevision(),lease.environmentId(),result.servingRevision());
+                if (changed>0) event(lease,"PREVIEW_READY");
+            } else {
+                int changed=jdbc.update("""
+                    UPDATE environments SET phase='PROVISIONING',serving_revision=NULL,updated_at=clock_timestamp()
+                    WHERE id=? AND desired_state='ACTIVE' AND phase IN ('QUEUED','WAITING_BUILD','READY')
+                    """,lease.environmentId());
+                if (changed>0) event(lease,"PROVISIONING_STARTED");
+            }
         }
     }
 
@@ -95,11 +110,23 @@ public class ProvisioningStore {
 
     public List<Progress> progress(String actor) {
         return jdbc.query("""
-            SELECT e.id,e.namespace,p.stage,p.message,p.reserved,p.observed_at FROM environments e
+            SELECT e.id,e.namespace,e.phase,p.stage,p.message,p.reserved,p.observed_at FROM environments e
             LEFT JOIN environment_provisioning p ON p.environment_id=e.id
             WHERE e.owner_actor=? ORDER BY e.created_at DESC,e.id DESC LIMIT 100
             """,(rs,row)->new Progress(rs.getObject("id",UUID.class),rs.getString("stage"),rs.getString("message"),
                 rs.getString("namespace"),"ks-"+rs.getObject("id",UUID.class).toString().replace("-",""),rs.getBoolean("reserved"),
-                rs.getTimestamp("observed_at")==null ? null : rs.getTimestamp("observed_at").toInstant().toString()),actor);
+                rs.getTimestamp("observed_at")==null ? null : rs.getTimestamp("observed_at").toInstant().toString(),
+                "READY".equals(rs.getString("phase")) ? settings.previewUrl(rs.getObject("id",UUID.class)) : null),actor);
+    }
+
+    public Preview preview(UUID environment,String actor) {
+        boolean owned=Boolean.TRUE.equals(jdbc.queryForObject(
+            "SELECT EXISTS(SELECT 1 FROM environments WHERE id=? AND owner_actor=?)",Boolean.class,environment,actor));
+        if (!owned) throw new LifecycleException(HttpStatus.NOT_FOUND,"NOT_FOUND","Environment not found.");
+        return jdbc.query("""
+            SELECT namespace,expires_at FROM environments
+            WHERE id=? AND owner_actor=? AND desired_state='ACTIVE' AND phase='READY' AND expires_at>clock_timestamp()
+            """,(rs,row)->new Preview(rs.getString(1),rs.getTimestamp(2).toInstant()),environment,actor).stream().findFirst()
+            .orElseThrow(()->new LifecycleException(HttpStatus.CONFLICT,"PREVIEW_NOT_READY","Preview is not ready."));
     }
 }

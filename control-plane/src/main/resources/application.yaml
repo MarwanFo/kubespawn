@@ -33,6 +33,10 @@ kubespawn:
     server: ${KUBERNETES_SERVER:}
     chart: ${KUBERNETES_CHART_PATH:../templates/preview-small}
     slots: ${KUBERNETES_CAPACITY_SLOTS:2}
+    preview-public-base: ${KUBERNETES_PREVIEW_PUBLIC_BASE:http://localhost:9080}
+    preview-internal-base: ${KUBERNETES_PREVIEW_INTERNAL_BASE:http://preview-edge:8080}
+    gateway-namespace: ${KUBERNETES_GATEWAY_NAMESPACE:gateway-system}
+    gateway-name: ${KUBERNETES_GATEWAY_NAME:preview-gateway}
   github:
     enabled: ${GITHUB_ENABLED:false}
     app-id: ${GITHUB_APP_ID:}

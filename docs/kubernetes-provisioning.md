@@ -1,4 +1,4 @@
-# Local Kubernetes provisioning (v0.5)
+# Local Kubernetes provisioning and private routes (v0.6)
 
 The local worker now reserves capacity, establishes an owned namespace baseline, creates a constrained Argo AppProject and Application, and observes Argo sync/health. Deletion waits for the Argo finalizer and confirmed namespace/project absence before releasing capacity. Kubernetes provisioning is opt-in and supported only in the local profile.
 
@@ -38,17 +38,17 @@ Every resource carries immutable environment ownership and the environment lease
 
 ## Progress and observation
 
-`GET /api/v1/kubernetes/status` exposes enabled/capacity/routing status; `GET /api/v1/kubernetes/environment-progress` is owner scoped. The portal shows reservations, Argo identity, observed stages and cleanup. Active jobs keep reconciling so namespace baseline and Argo drift are repaired. Healthy Argo workloads produce `WORKLOADS_HEALTHY`, while the environment remains `PROVISIONING`: private routing, authentication and external endpoint health must be implemented before a `READY` badge or serving revision is recorded.
+`GET /api/v1/kubernetes/status` exposes enabled/capacity/routing status; `GET /api/v1/kubernetes/environment-progress` is owner scoped. The portal shows reservations, Argo identity, route readiness, preview links, observed stages and cleanup. Active jobs keep reconciling so namespace baseline, Argo and route drift are repaired. Healthy Argo workloads remain `PROVISIONING` until Gateway and route status are current and authenticated/anonymous edge probes pass. The fenced observation then records `READY` with the verified serving revision.
 
 Two slots are admitted atomically under a PostgreSQL cluster allocation lock. Slots are held through failed provisioning and terminating namespaces. Cleanup jobs continue retrying beyond the normal provisioning failure budget. After `DESTROYED`, cleanup tombstones remain polled to catch late remote effects; newly observed resources reopen cleanup and retain capacity. External effects are at least once. A database fence cannot cancel an already accepted Kubernetes call; this is why cleanup and tombstone reconciliation remain necessary.
 
-For local inspection only, forward the web service on localhost:
+Use **Open preview** in the portal after the environment is ready. The browser obtains a path-scoped HttpOnly cookie from the owner-authorized platform API and opens the loopback edge on port 9080. Direct anonymous requests return `401`.
 
 ```powershell
 kubectl --kubeconfig .secrets/kind-admin.yaml -n YOUR_NAMESPACE port-forward --address 127.0.0.1 service/preview-web 9090:8080
 ```
 
-Open `http://localhost:9090`. There is no public preview route yet. Keep the GitHub webhook tunnel pointed at the platform API, not a preview.
+Direct port-forwarding bypasses the preview edge and is intended only for cluster debugging. Keep the GitHub webhook tunnel pointed at the platform API, not a preview.
 
 ## Verification and limitations
 
@@ -56,6 +56,6 @@ Run `scripts/verify.ps1 -Integration`, Helm lint for generic/demo profiles, the 
 
 If a current ACTIVE, unexpired operation reaches `FAILED` after its cause is corrected, the portal exposes **Retry operation**. `POST /api/v1/operations/{id}/retry` requires the owner bearer token and the current environment version in `If-Match`; it preserves the request, expiry and intent version, resets only the failed job's retry budget, and records an audit event. It cannot revive a deleted, expired, superseded or foreign request.
 
-Next: authenticated Gateway routing, endpoint checks, independent image/provenance admission, a production application/database/migration contract, durable storage/provider inventory, full tenant/project capacity budgets, fleet orphan scans and database-restore quarantine. Do not deploy this local profile to a shared or production cluster.
+Next: independent image/provenance admission, production OIDC/TLS, a production application/database/migration contract, durable storage/provider inventory, full tenant/project capacity budgets, fleet orphan scans and database-restore quarantine. Do not deploy this local profile to a shared or production cluster.
 
 Primary references: [Cilium on KinD](https://docs.cilium.io/en/stable/installation/kind/), [namespace-scoped Argo installation](https://argo-cd.readthedocs.io/en/stable/operator-manual/installation/), [Argo projects](https://argo-cd.readthedocs.io/en/stable/user-guide/projects/), [Argo finalizers](https://argo-cd.readthedocs.io/en/stable/user-guide/app_deletion/).

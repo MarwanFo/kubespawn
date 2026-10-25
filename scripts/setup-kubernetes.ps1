@@ -23,6 +23,13 @@ if (-not (Test-Path -LiteralPath $taskAdmin)) { throw 'Existing cluster has no t
 & $taskHelm upgrade --install cilium https://helm.cilium.io/cilium-1.20.4.tgz --kubeconfig $taskAdmin --namespace kube-system `
     --set ipam.mode=kubernetes --set operator.replicas=1 --set kubeProxyReplacement=false --set envoy.enabled=false --wait --timeout 5m
 Assert-NativeSuccess 'Install Cilium'
+& $taskHelm upgrade --install envoy-gateway oci://docker.io/envoyproxy/gateway-helm --version v1.8.5 `
+    --kubeconfig $taskAdmin --namespace envoy-gateway-system --create-namespace --wait --timeout 5m
+Assert-NativeSuccess 'Install Envoy Gateway'
+& kubectl --kubeconfig $taskAdmin apply -f "$ProjectRoot/infra/local/envoy-gateway.yaml"
+Assert-NativeSuccess 'Configure the local preview Gateway'
+& kubectl --kubeconfig $taskAdmin wait --timeout=5m -n gateway-system gateway/preview-gateway --for=condition=Programmed
+Assert-NativeSuccess 'Wait for the local preview Gateway'
 & kubectl --kubeconfig $taskAdmin create namespace argocd --dry-run=client -o json | & kubectl --kubeconfig $taskAdmin apply -f -
 Assert-NativeSuccess 'Ensure Argo namespace'
 $taskArgo='https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests'

@@ -13,6 +13,11 @@ import jakarta.annotation.PreDestroy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.ArrayList;
@@ -35,6 +40,7 @@ public class KubernetesProvisioner implements ProvisioningGateway {
     private final ProvisioningSettings settings;
     private final ObjectMapper json;
     private final KubernetesClient client;
+    private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
     public KubernetesProvisioner(ProvisioningSettings settings,ObjectMapper json) {
         this.settings=settings; this.json=json;
         try {
@@ -67,7 +73,7 @@ public class KubernetesProvisioner implements ProvisioningGateway {
         registerNamespace(plan.namespace(),true,current);
         Map<String,Object> values=m("environmentId",plan.environmentId().toString(),"runtimeProfile","kubespawn-demo",
             "api",m("image",m("repository",plan.apiImage(),"digest",plan.apiDigest()),"healthPath","/actuator/health/readiness","livenessPath","/actuator/health/liveness"),
-            "web",m("image",m("repository",plan.webImage(),"digest",plan.webDigest())));
+            "web",m("image",m("repository",plan.webImage(),"digest",plan.webDigest()),"healthPath","/__kubespawn/health","livenessPath","/__kubespawn/health"));
         var app=resource("argoproj.io/v1alpha1","Application",application,"argocd",lease,"spec",m(
             "project",application,"destination",m("server","https://kubernetes.default.svc","namespace",plan.namespace()),
             "source",m("repoURL",repository,"targetRevision",plan.chartRevision(),"path","templates/preview-small",
@@ -89,7 +95,15 @@ public class KubernetesProvisioner implements ProvisioningGateway {
         boolean synced=status.path("sync").path("status").asText().equals("Synced")
             && status.path("sync").path("revision").asText().equals(plan.chartRevision());
         boolean healthy=status.path("health").path("status").asText().equals("Healthy");
-        if (synced && healthy) return waitFor("WORKLOADS_HEALTHY","Argo confirms healthy workloads. Private preview routing is the next milestone.");
+        if (synced && healthy) {
+            route(plan,lease,current);
+            if (!previewRoutingReady()) return waitFor("GATEWAY_PENDING","Workloads are healthy. Waiting for the shared preview Gateway.");
+            var observedRoute=get("gateway.networking.k8s.io/v1","HTTPRoute","preview-route",plan.namespace());
+            if (!routeReady(observedRoute)) return waitFor("ROUTE_PENDING","Workloads are healthy. Waiting for the preview route to be accepted.");
+            String token=previewAccessToken(plan.namespace());
+            if (!edgeProbe(plan.environmentId(),token)) return waitFor("EDGE_PROBE_PENDING","Route accepted. Waiting for authenticated edge health and access denial checks.");
+            return new Observation("EDGE_READY","Authenticated preview route is accepted and healthy.",false,true,plan.sourceSha());
+        }
         if (status.path("health").path("status").asText().equals("Degraded")) return waitFor("WORKLOADS_DEGRADED","Argo reports degraded workloads. Inspect the namespace events.");
         return waitFor("ARGO_SYNC_PENDING","Namespace baseline established. Waiting for Argo sync and workload health.");
     }
@@ -100,6 +114,7 @@ public class KubernetesProvisioner implements ProvisioningGateway {
         labels(namespace).put("pod-security.kubernetes.io/enforce-version","v1.35");
         labels(namespace).put("pod-security.kubernetes.io/audit","restricted");
         labels(namespace).put("pod-security.kubernetes.io/warn","restricted");
+        labels(namespace).put("kubespawn.io/preview-route","allowed");
         put(namespace,lease,current);
         String ns=plan.namespace();
         put(resource("v1","ServiceAccount","preview-workload",ns,lease,"automountServiceAccountToken",false),lease,current);
@@ -120,11 +135,10 @@ public class KubernetesProvisioner implements ProvisioningGateway {
             policy("allow-"+link[1]+"-from-"+link[0],ns,lease,current,m("podSelector",selector(link[1]),"policyTypes",List.of("Ingress"),
                 "ingress",List.of(m("from",List.of(m("podSelector",selector(link[0]))),"ports",List.of(m("protocol","TCP","port",Integer.parseInt(link[2])))))));
         }
-        if (get("v1","Secret","preview-runtime",ns)==null) {
-            var random=new SecureRandom(); byte[] password=new byte[32]; byte[] token=new byte[32]; random.nextBytes(password); random.nextBytes(token);
-            put(resource("v1","Secret","preview-runtime",ns,lease,"type","Opaque","stringData",m(
-                "DATABASE_PASSWORD",HexFormat.of().formatHex(password),"KUBESPAWN_DEV_TOKEN",HexFormat.of().formatHex(token))),lease,current);
-        } else owned(get("v1","Secret","preview-runtime",ns),lease);
+        policy("allow-gateway-to-web",ns,lease,current,m("podSelector",selector("web"),"policyTypes",List.of("Ingress"),
+            "ingress",List.of(m("from",List.of(m("namespaceSelector",m("matchLabels",m("kubernetes.io/metadata.name","envoy-gateway-system")))),
+                "ports",List.of(m("protocol","TCP","port",8080))))));
+        ensureRuntimeSecret(ns,lease,current);
         put(resource("rbac.authorization.k8s.io/v1","RoleBinding","preview-deployer",ns,lease,
             "roleRef",m("apiGroup","rbac.authorization.k8s.io","kind","ClusterRole","name","kubespawn-preview-deployer"),
             "subjects",List.of(m("kind","ServiceAccount","name","argocd-application-controller","namespace","argocd"))),lease,current);
@@ -133,6 +147,10 @@ public class KubernetesProvisioner implements ProvisioningGateway {
     @Override public Observation cleanup(String namespace,JobLease lease,BooleanSupplier current) {
         guard(current);
         String app=application(lease);
+        if (get("gateway.networking.k8s.io/v1","HTTPRoute","preview-route",namespace)!=null) {
+            remove("gateway.networking.k8s.io/v1","HTTPRoute","preview-route",namespace,lease,current);
+            return waitFor("ROUTE_CLEANUP_PENDING","Preview access removed. Waiting for route deletion.");
+        }
         if (get("argoproj.io/v1alpha1","Application",app,"argocd")!=null) {
             remove("argoproj.io/v1alpha1","Application",app,"argocd",lease,current);
             return waitFor("ARGO_CLEANUP_PENDING","Waiting for Argo's resource finalizer to remove workloads.");
@@ -148,6 +166,82 @@ public class KubernetesProvisioner implements ProvisioningGateway {
         }
         // Continue polling tombstones: a late remote effect from an old lease is discovered and removed.
         return new Observation("CLEANUP_CONFIRMED","Kubernetes confirms the namespace, Application, and project are absent.",true);
+    }
+
+    private void ensureRuntimeSecret(String namespace,JobLease lease,BooleanSupplier current) {
+        var existing=get("v1","Secret","preview-runtime",namespace);
+        var values=new LinkedHashMap<String,Object>();
+        if (existing!=null) {
+            owned(existing,lease);
+            var secret=client.secrets().inNamespace(namespace).withName("preview-runtime").get();
+            if (secret.getData()!=null) secret.getData().forEach((key,value)->
+                values.put(key,new String(Base64.getDecoder().decode(value),StandardCharsets.UTF_8)));
+        }
+        var random=new SecureRandom();
+        for (String key:List.of("DATABASE_PASSWORD","KUBESPAWN_DEV_TOKEN","PREVIEW_ACCESS_TOKEN")) if (!values.containsKey(key)) {
+            byte[] token=new byte[32]; random.nextBytes(token); values.put(key,HexFormat.of().formatHex(token));
+        }
+        put(resource("v1","Secret","preview-runtime",namespace,lease,"type","Opaque","stringData",values),lease,current);
+    }
+
+    private void route(Plan plan,JobLease lease,BooleanSupplier current) {
+        String prefix=settings.previewPath(plan.environmentId());
+        put(resource("gateway.networking.k8s.io/v1","HTTPRoute","preview-route",plan.namespace(),lease,"spec",m(
+            "parentRefs",List.of(m("name",settings.gatewayName,"namespace",settings.gatewayNamespace,"sectionName","http")),
+            "rules",List.of(m("matches",List.of(m("path",m("type","PathPrefix","value",prefix))),
+                "filters",List.of(m("type","URLRewrite","urlRewrite",m("path",m("type","ReplacePrefixMatch","replacePrefixMatch","/")))),
+                "backendRefs",List.of(m("name","preview-web","port",8080)))))),lease,current);
+    }
+
+    @Override public boolean previewRoutingReady() {
+        if (!settings.enabled || client==null) return false;
+        try {
+            var gateway=get("gateway.networking.k8s.io/v1","Gateway",settings.gatewayName,settings.gatewayNamespace);
+            return gateway!=null && condition(status(gateway).path("conditions"),"Programmed",gateway.getMetadata().getGeneration());
+        } catch (RuntimeException unavailable) { return false; }
+    }
+
+    private boolean routeReady(GenericKubernetesResource route) {
+        if (route==null) return false;
+        var parents=status(route).path("parents");
+        if (!parents.isArray()) return false;
+        for (var parent:parents) {
+            var ref=parent.path("parentRef");
+            if (ref.path("name").asText().equals(settings.gatewayName)
+                    && ref.path("namespace").asText().equals(settings.gatewayNamespace)
+                    && condition(parent.path("conditions"),"Accepted",route.getMetadata().getGeneration())
+                    && condition(parent.path("conditions"),"ResolvedRefs",route.getMetadata().getGeneration())) return true;
+        }
+        return false;
+    }
+
+    private boolean condition(tools.jackson.databind.JsonNode conditions,String type,Long generation) {
+        if (!conditions.isArray()) return false;
+        for (var condition:conditions) if (condition.path("type").asText().equals(type)
+                && condition.path("status").asText().equals("True")
+                && generation!=null && condition.path("observedGeneration").asLong(-1)==generation) return true;
+        return false;
+    }
+
+    @Override public String previewAccessToken(String namespace) {
+        if (!settings.enabled || client==null) throw new IllegalStateException("Preview routing is disabled.");
+        var secret=client.secrets().inNamespace(namespace).withName("preview-runtime").get();
+        if (secret==null || secret.getData()==null || !secret.getData().containsKey("PREVIEW_ACCESS_TOKEN"))
+            throw new IllegalStateException("Preview access is not initialized.");
+        return new String(Base64.getDecoder().decode(secret.getData().get("PREVIEW_ACCESS_TOKEN")),StandardCharsets.UTF_8);
+    }
+
+    private boolean edgeProbe(java.util.UUID environment,String token) {
+        try {
+            URI target=URI.create(settings.previewInternalUrl(environment));
+            int denied=http.send(HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(5)).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+            int allowed=http.send(HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(5))
+                .header("Cookie","kubespawn_preview="+token).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+            return denied==401 && allowed>=200 && allowed<400;
+        } catch (Exception unavailable) {
+            if (unavailable instanceof InterruptedException) Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private void registerNamespace(String namespace,boolean add,BooleanSupplier current) {

@@ -79,10 +79,13 @@ footer { margin-top: 32px; display: flex; justify-content: space-between; gap: 1
 .phase-badge { margin-left: auto; font-size: 10px; padding: 5px 8px; border-radius: 5px; white-space: nowrap; }
 .waiting { color: #8a681e; background: #fbf5e6; }
 .terminating { color: #677773; background: #eef1f0; }
+.phase-badge.ready { color: #17613a; background: #e8f6ed; }
 .environment-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 16px 0 8px; color: #8a9a90; font-size: 10px; }
 .environment-meta span { display: flex; align-items: center; gap: 5px; overflow-wrap: anywhere; }
 .environment-explanation { color: #7b8f82; font-size: 11px; line-height: 1.7; margin: 7px 0 14px; }
 .environment-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.environment-actions form { display: contents; }
+.preview-button { border-color: #9fcab2; background: #eff8f2; color: #17613a; }
 .operation-progress { border: 1px solid #e5ebe5; background: #f7faf6; border-radius: 7px; padding: 13px 15px; margin: 0 0 16px; }
 .operation-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .operation-heading strong { font-size: 11px; color: #536f59; text-transform: capitalize; }

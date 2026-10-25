@@ -8,4 +8,6 @@ public interface ProvisioningGateway {
     default Observation validate(Plan plan) { return null; }
     Observation reconcile(Plan plan, JobLease lease, BooleanSupplier current);
     Observation cleanup(String namespace, JobLease lease, BooleanSupplier current);
+    String previewAccessToken(String namespace);
+    boolean previewRoutingReady();
 }

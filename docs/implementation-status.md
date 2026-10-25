@@ -20,6 +20,7 @@
 - Optional local KinD/Cilium and namespace-scoped Argo provisioning, atomic cluster slots, verified chart identity, baseline-before-Application ordering, resource ownership/fencing checks, and owner-scoped progress.
 - A local KubeSpawn demo workload with isolated ephemeral PostgreSQL/credentials and read-only unprivileged API/web containers.
 - Confirmed Argo/namespace/project cleanup, retained capacity through termination, continuing cleanup retries and tombstone monitoring.
+- Envoy Gateway routing with controller-owned HTTPRoutes, owner-scoped HttpOnly preview sessions, anonymous denial, authenticated edge probes, honest READY/serving-revision commits, and route-first cleanup.
 
 ## Next: lifecycle vertical slice
 
@@ -27,11 +28,11 @@
 2. Add PR source eligibility/current-state reconciliation and independent provenance/admission checks. The current build verification supports manual requests on an approved branch and trusts its reviewed producer.
 3. Extend the implemented local cluster capacity slots to tenant/project resource budgets and production cluster headroom.
 4. Extend the local baseline/Application/AppProject implementation to a production application contract and independently enforced provenance admission.
-5. Observed migration/workload/edge readiness and GitHub deployment notifications.
+5. Observed migration readiness and GitHub deployment notifications; workload and local edge readiness are implemented.
 6. Extend implemented TTL suppression and namespace/Argo cleanup to external volumes, providers, credentials, fleet orphan recovery and restore quarantine.
 
 ## Before an internal pilot
 
 Complete OIDC audience checks, project/team authorization and tenancy predicates, browser login and preview authorization, Cilium enforcement tests, wildcard TLS/DNS, secrets, telemetry retention, database restore, and cleanup runbooks. Add the rest of the architecture's build/condition/capacity/usage records through new migrations when their feature contracts are implemented.
 
-The worker is connected in local mode. Without GitHub setup it reports `GITHUB_SETUP_REQUIRED`; with verified evidence it can move to `QUEUED`. Kubernetes is separately opt-in: enabled requests can enter `PROVISIONING`, while confirmed absence permits `DESTROYED`. Argo health alone never sets `READY` or `serving_revision`; private routing and endpoint checks remain required. Current writes remain local-only until repository/team and tenant authorization are implemented. Do not manually insert production-like environments into the local database to make the dashboard look populated.
+The worker is connected in local mode. Without GitHub setup it reports `GITHUB_SETUP_REQUIRED`; with verified evidence it can move to `QUEUED`. Kubernetes is separately opt-in: enabled requests can enter `PROVISIONING`, authenticated edge readiness permits `READY`, and confirmed absence permits `DESTROYED`. Current writes remain local-only until repository/team and tenant authorization are implemented. Do not manually insert production-like environments into the local database to make the dashboard look populated.

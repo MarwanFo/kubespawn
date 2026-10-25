@@ -2,7 +2,7 @@
 
 An internal developer platform for disposable pull-request environments.
 
-**Current milestone: local Kubernetes provisioning (v0.5).** Approved builds can reserve capacity, establish isolated namespaces and constrained Argo projects, and deploy digest-pinned demo workloads. The portal reports observed Argo progress and confirmed cleanup. The local demo uses its own disposable PostgreSQL and credentials; it never uses the platform database. Healthy workloads remain `PROVISIONING` until authenticated preview routing and endpoint checks are implemented. GitHub and Kubernetes integrations are optional and disabled in the base Compose stack.
+**Current milestone: authenticated private previews (v0.6).** Approved builds can reserve capacity, deploy digest-pinned workloads, and receive an owner-scoped route through Envoy Gateway. The controller reports `READY` only after Gateway/route conditions, authenticated edge health, and anonymous denial are observed. The local demo uses isolated disposable credentials and never uses the platform database. GitHub and Kubernetes integrations remain optional and disabled in the base Compose stack.
 
 ## Start locally on Windows
 
@@ -93,6 +93,7 @@ Gradle Wrapper 9.8.2 is included with its distribution SHA-256. npm and Gradle d
 | `GET /api/v1/github/environment-builds` | Local bearer, owner | Pinned SHA, build progress, and verified image digests |
 | `GET /api/v1/kubernetes/status` | Local bearer | Local controller flag, slot limit, and preview-routing readiness |
 | `GET /api/v1/kubernetes/environment-progress` | Local bearer, owner | Capacity, namespace, Argo and cleanup observations |
+| `POST /api/v1/kubernetes/environments/{id}/preview-session` | Local bearer, owner | Set a path-scoped HttpOnly preview cookie and redirect to a READY preview |
 | `POST /integrations/github/webhook` | Raw-body HMAC | Deduplicated run receipt and installation/removal events |
 | `GET /actuator/prometheus` | Bearer | Micrometer metrics; restrict access further before deployment |
 
@@ -102,8 +103,8 @@ The local worker polls every 2 seconds. Expected prerequisite waits use `WAITING
 
 GitHub delivery metadata is a wakeup rather than build authority. The verifier independently checks current run identity/attempt, approved workflow bytes, successful conclusion, source/request binding, complete image set, exact registry paths, and downloaded artifact SHA-256. A verified build alone cannot create or reactivate an environment. The supplied workflow runs tests/builds/scans without registry write permission and publishes from a separate runner. It is disabled until the repository variable `KUBESPAWN_PUBLISH_IMAGES` is explicitly enabled. See [the verification contract](docs/github-build-verification.md).
 
-The local profile accepts the generated development token and represents one trusted local developer. The new lifecycle detail/mutation routes are available only in that profile. Outside it, only the earlier inventory/platform reads are supported; the API requires an OIDC issuer (`OIDC_ISSUER_URI`) and the `environments:read` token scope. JWT read/write scopes cannot enable local mutations. Production audience validation, repository/team authorization, browser OIDC login, private preview authorization, and tenancy enforcement remain required before deployment. The default profile never falls back to the development token.
+The local profile accepts the generated development token and represents one trusted local developer. The lifecycle and preview-session routes are available only in that profile. Outside it, only the earlier inventory/platform reads are supported; the API requires an OIDC issuer (`OIDC_ISSUER_URI`) and the `environments:read` token scope. JWT read/write scopes cannot enable local mutations. Production audience validation, repository/team authorization, browser OIDC login, HTTPS preview authorization, and tenancy enforcement remain required before deployment. The default profile never falls back to the development token.
 
 The Compose portal is a **local development proxy** that inserts that token. Browser mutations must have an Origin matching the proxy's forwarded Host; the local Vite and Compose proxies preserve it. Do not expose or reuse this proxy configuration as a production deployment. Production browser authentication needs its own implementation. The base stack has no Kubernetes credentials; only the explicit ignored Kubernetes overlay mounts the restricted controller credential.
 
-See [implementation status](docs/implementation-status.md), [GitHub setup](docs/github-setup.md), [GitHub verification results](docs/github-verification.md), [worker behavior](docs/job-worker.md), [worker verification](docs/worker-verification.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).
+See [implementation status](docs/implementation-status.md), [preview routing](docs/preview-routing.md), [GitHub setup](docs/github-setup.md), [GitHub verification results](docs/github-verification.md), [worker behavior](docs/job-worker.md), [worker verification](docs/worker-verification.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).

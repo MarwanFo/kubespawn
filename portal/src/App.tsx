@@ -37,7 +37,7 @@ export function App() {
         <div className="nav-label">WORKSPACE</div>
         <a className="nav-item selected" href="#environments"><Box size={18} />Environments<span className="nav-count">{environments.isSuccess ? items.length : '—'}</span></a>
         <div className="sidebar-note"><ShieldCheck size={17} /><span>Private by design<small>Local access · no cloud credentials</small></span></div>
-        <div className="sidebar-footer"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'API connected' : 'Connecting to API'}<small>Workload provisioning · v{platform.data?.version ?? '0.5.0'}</small></div>
+        <div className="sidebar-footer"><span className={`status-dot ${connected ? 'online' : ''}`} />{connected ? 'API connected' : 'Connecting to API'}<small>Private previews · v{platform.data?.version ?? '0.6.0'}</small></div>
       </aside>
 
       <div className="main-area">
@@ -45,7 +45,7 @@ export function App() {
         <main>
           <div className="page-heading"><div><p className="eyebrow">YOUR DEVELOPER WORKSPACE</p><h1>Environments</h1><p>From pull request to a place you can test.</p></div><button className="spawn-button" disabled={!connected || !canManage} onClick={() => setSpawnOpen(true)} title={canManage ? 'Create an environment request' : 'Lifecycle requests require the updated API in local mode'}><Box size={17} />Spawn environment</button></div>
 
-          <section className="foundation-banner"><span className="banner-icon"><Terminal size={21} /></span><div><strong>{platform.data?.controllerEnabled ? 'Verified builds. Isolated workloads.' : platform.data?.githubConfigured ? 'Approved builds. Exact source revisions.' : 'Connect GitHub to verify builds.'}</strong><p>{platform.data?.controllerEnabled ? 'The controller establishes each namespace before Argo deploys approved images. Private preview routing is the next milestone.' : 'Connect GitHub and enable the local Kubernetes integration to provision approved builds.'} <a href="https://github.com/MarwanFo/kubespawn/blob/main/docs/kubernetes-provisioning.md" target="_blank" rel="noreferrer">Setup guide ↗</a></p></div><span className="phase-tag">PHASE 05</span></section>
+          <section className="foundation-banner"><span className="banner-icon"><Terminal size={21} /></span><div><strong>{platform.data?.controllerEnabled ? 'Verified builds. Private previews.' : platform.data?.githubConfigured ? 'Approved builds. Exact source revisions.' : 'Connect GitHub to verify builds.'}</strong><p>{platform.data?.controllerEnabled ? 'An environment becomes ready only after its private route accepts an authenticated edge probe and denies anonymous access.' : 'Connect GitHub and enable the local Kubernetes integration to provision approved builds.'} <a href="https://github.com/MarwanFo/kubespawn/blob/main/docs/preview-routing.md" target="_blank" rel="noreferrer">Setup guide ↗</a></p></div><span className="phase-tag">PHASE 06</span></section>
 
           {error && <div role="alert" className="error-banner">{error.message}</div>}
           {canTrack && operations.error && <div role="alert" className="error-banner">Operation progress is unavailable. {operations.error.message}</div>}
@@ -66,7 +66,7 @@ export function App() {
               : <div className="empty-state"><CircleDot size={30} /><h3>{environments.isError ? 'Inventory is unavailable' : 'Loading your workspace…'}</h3><p>{environments.isError ? 'Start the local services, then refresh.' : 'Checking the platform database.'}</p></div>}
           </section>
 
-          <section className="next-step"><div><p className="eyebrow">WHAT COMES NEXT</p><h2>A private place to test.</h2><p>Add authenticated preview routing and endpoint checks before reporting an environment ready.</p></div><div className="flow"><span><Database size={17} />Intent</span><ChevronRight size={15} /><span><GitBranch size={17} />Workloads</span><ChevronRight size={15} /><span><Box size={17} />Private preview<ArrowUpRight size={13} /></span></div></section>
+          <section className="next-step"><div><p className="eyebrow">WHAT COMES NEXT</p><h2>Stronger deployment trust.</h2><p>Add independent image-signature admission and production identity before an internal pilot.</p></div><div className="flow"><span><Database size={17} />Intent</span><ChevronRight size={15} /><span><GitBranch size={17} />Verified build</span><ChevronRight size={15} /><span><Box size={17} />Private preview<ArrowUpRight size={13} /></span></div></section>
           <footer>KubeSpawn developer platform<span>Designed for short-lived environments. Built for deliberate delivery.</span></footer>
         </main>
       </div>

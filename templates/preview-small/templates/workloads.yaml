@@ -40,9 +40,6 @@ spec:
       containers:
         - name: {{ $name }}
           {{- if eq $.Values.runtimeProfile "kubespawn-demo" }}
-          envFrom:
-            - secretRef:
-                name: preview-runtime
           {{- if eq $name "api" }}
           env:
             - {name: SPRING_PROFILES_ACTIVE, value: local}
@@ -51,11 +48,20 @@ spec:
             - {name: KUBESPAWN_WORKER_ENABLED, value: 'false'}
             - {name: KUBESPAWN_LIFECYCLE_EXPIRY_ENABLED, value: 'false'}
             - {name: GITHUB_ENABLED, value: 'false'}
+            - name: DATABASE_PASSWORD
+              valueFrom: {secretKeyRef: {name: preview-runtime, key: DATABASE_PASSWORD}}
+            - name: KUBESPAWN_DEV_TOKEN
+              valueFrom: {secretKeyRef: {name: preview-runtime, key: KUBESPAWN_DEV_TOKEN}}
           {{- else }}
           command: [/bin/sh, -c]
           args: ["mkdir -p /tmp/conf.d; exec /docker-entrypoint.sh nginx -g 'daemon off;' "]
           env:
             - {name: NGINX_ENVSUBST_OUTPUT_DIR, value: /tmp/conf.d}
+            - {name: NGINX_ENVSUBST_FILTER, value: '^(KUBESPAWN_DEV_TOKEN|PREVIEW_ACCESS_TOKEN)$'}
+            - name: KUBESPAWN_DEV_TOKEN
+              valueFrom: {secretKeyRef: {name: preview-runtime, key: KUBESPAWN_DEV_TOKEN}}
+            - name: PREVIEW_ACCESS_TOKEN
+              valueFrom: {secretKeyRef: {name: preview-runtime, key: PREVIEW_ACCESS_TOKEN}}
           {{- end }}
           {{- end }}
           image: {{ printf "%s@%s" $component.image.repository $component.image.digest | quote }}

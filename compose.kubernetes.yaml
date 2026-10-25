@@ -7,6 +7,8 @@ services:
       KUBERNETES_SERVER: https://kubespawn-control-plane:6443
       KUBERNETES_CHART_PATH: /app/preview-chart
       KUBERNETES_CAPACITY_SLOTS: ${KUBERNETES_CAPACITY_SLOTS:-2}
+      KUBERNETES_PREVIEW_PUBLIC_BASE: http://localhost:${PREVIEW_PORT:-9080}
+      KUBERNETES_PREVIEW_INTERNAL_BASE: http://preview-edge:8080
     volumes:
       - ./templates/preview-small:/app/preview-chart:ro
     secrets:
@@ -14,6 +16,18 @@ services:
     networks:
       - default
       - local-kind
+    depends_on:
+      preview-edge:
+        condition: service_started
+  preview-edge:
+    build:
+      context: ./infra/local/preview-edge
+    ports:
+      - "127.0.0.1:${PREVIEW_PORT:-9080}:8080"
+    networks:
+      - default
+      - local-kind
+    restart: unless-stopped
 secrets:
   kubernetes_controller:
     file: ${KUBERNETES_KUBECONFIG_FILE:?Run scripts/configure-kubernetes.ps1 first}

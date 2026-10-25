@@ -16,7 +16,11 @@ $taskPlatform = Invoke-RestMethod "$taskApi/api/v1/platform" -Headers $taskHeade
 if ($taskPlatform.controllerEnabled) {
     $taskKubernetes = Invoke-RestMethod "$taskApi/api/v1/kubernetes/status" -Headers $taskHeaders
     if (-not $taskKubernetes.enabled) { throw 'Kubernetes controller configuration is inconsistent.' }
+    if (-not $taskKubernetes.previewRoutingReady) { throw 'The shared preview Gateway is not programmed.' }
     $null = Invoke-RestMethod "$taskApi/api/v1/kubernetes/environment-progress" -Headers $taskHeaders
+    $taskPreviewPort = if ($env:PREVIEW_PORT) { $env:PREVIEW_PORT } else { '9080' }
+    $taskMissingPreview = Invoke-WebRequest "http://127.0.0.1:$taskPreviewPort/e/00000000-0000-0000-0000-000000000000/" -SkipHttpErrorCheck
+    if ($taskMissingPreview.StatusCode -ne 404) { throw 'The loopback preview edge did not reject an unknown route.' }
 }
 if ($taskPlatform.capabilities -notcontains 'job-processing') { throw 'Local API does not expose worker progress.' }
 $taskOperations = Invoke-RestMethod "$taskApi/api/v1/operations" -Headers $taskHeaders
@@ -35,4 +39,4 @@ $taskHtml = Invoke-WebRequest $taskPortal
 if ($taskHtml.Content -notmatch 'KubeSpawn') { throw 'Portal HTML was not served.' }
 $taskProxy = Invoke-RestMethod "$taskPortal/api/v1/platform"
 if ($taskProxy.name -ne 'KubeSpawn') { throw 'Portal-to-API proxy is not working.' }
-Write-Host "Smoke checks passed: database readiness, bearer authentication, inventory ($($taskInventory.items.Count)), operation progress ($(@($taskOperations).Count)), build progress ($(@($taskBuilds).Count)), webhook gate, portal, and API proxy."
+Write-Host "Smoke checks passed: database readiness, bearer authentication, inventory ($($taskInventory.items.Count)), operation progress ($(@($taskOperations).Count)), build progress ($(@($taskBuilds).Count)), webhook gate, portal/API proxy, and preview edge."

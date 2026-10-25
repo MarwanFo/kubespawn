@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, resolve(import.meta.dirname, '..'), '');
   const token = process.env.KUBESPAWN_DEV_TOKEN || env.KUBESPAWN_DEV_TOKEN;
   return {
+    base: './',
     plugins: [react(), tailwindcss()],
     server: {
       port: 5173,

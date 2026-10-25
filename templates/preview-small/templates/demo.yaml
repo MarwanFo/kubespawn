@@ -21,17 +21,26 @@ data:
       include /tmp/conf.d/*.conf;
     }
   default.conf.template: |
+    map $cookie_kubespawn_preview $preview_authorized {
+      default 0;
+      "${PREVIEW_ACCESS_TOKEN}" 1;
+    }
     server {
       listen 8080;
       server_name _;
       root /usr/share/nginx/html;
       index index.html;
+      location = /__kubespawn/health { access_log off; return 204; }
       location /api/ {
+        if ($preview_authorized = 0) { return 401; }
         proxy_pass http://preview-api:8080;
         proxy_set_header Host $http_host;
         proxy_set_header Authorization "Bearer ${KUBESPAWN_DEV_TOKEN}";
       }
-      location / { try_files $uri $uri/ /index.html; }
+      location / {
+        if ($preview_authorized = 0) { return 401; }
+        try_files $uri $uri/ /index.html;
+      }
     }
 ---
 apiVersion: apps/v1

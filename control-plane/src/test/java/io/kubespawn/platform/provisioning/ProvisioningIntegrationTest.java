@@ -3,6 +3,9 @@ package io.kubespawn.platform.provisioning;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import io.kubespawn.platform.github.BuildModels.Enrollment;
 import io.kubespawn.platform.github.GitHubGateway;
 import io.kubespawn.platform.github.GitHubStore;
@@ -16,7 +19,10 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -27,6 +33,7 @@ import org.testcontainers.utility.DockerImageName;
 
 @Tag("integration")
 @Testcontainers
+@AutoConfigureMockMvc
 @SpringBootTest(properties={"spring.profiles.active=local",
     "KUBESPAWN_DEV_TOKEN=integration-test-token-with-at-least-32-characters",
     "kubespawn.worker.enabled=false","kubespawn.lifecycle.expiry.enabled=false","kubespawn.github.enabled=false",
@@ -46,6 +53,7 @@ class ProvisioningIntegrationTest {
     @Autowired JobStore jobs;
     @Autowired JobRunner runner;
     @Autowired JdbcTemplate jdbc;
+    @Autowired MockMvc mvc;
     @MockitoBean ProvisioningGateway gateway;
     @MockitoBean GitHubGateway github;
     static final String SHA="a".repeat(40);
@@ -136,5 +144,23 @@ class ProvisioningIntegrationTest {
         create("alice"); create("bob");
         assertThat(store.progress("alice")).hasSize(1); assertThat(store.progress("bob")).hasSize(1);
         assertThat(store.progress("outsider")).isEmpty();
+    }
+    @Test void edgeReadinessCommitsRevisionAndIssuesOwnerScopedSession() throws Exception {
+        UUID id=create("local-developer");
+        when(gateway.reconcile(any(),any(),any())).thenReturn(new ProvisioningModels.Observation(
+            "EDGE_READY","Authenticated preview route is accepted and healthy.",false,true,SHA));
+        when(gateway.previewAccessToken(anyString())).thenReturn("preview-token");
+        runner.runOnce();
+        assertThat(lifecycle.get(id,"local-developer").phase()).isEqualTo("READY");
+        assertThat(lifecycle.get(id,"local-developer").servingRevision()).isEqualTo(SHA);
+        assertThat(store.progress("local-developer").getFirst().previewUrl()).endsWith("/e/"+id+"/");
+        mvc.perform(post("/api/v1/kubernetes/environments/{id}/preview-session",id)
+                .header(HttpHeaders.AUTHORIZATION,"Bearer integration-test-token-with-at-least-32-characters"))
+            .andExpect(status().isSeeOther())
+            .andExpect(header().string(HttpHeaders.LOCATION,"http://localhost:9080/e/"+id+"/"))
+            .andExpect(header().string(HttpHeaders.SET_COOKIE,org.hamcrest.Matchers.allOf(
+                org.hamcrest.Matchers.containsString("kubespawn_preview=preview-token"),
+                org.hamcrest.Matchers.containsString("HttpOnly"),
+                org.hamcrest.Matchers.containsString("SameSite=Strict"))));
     }
 }

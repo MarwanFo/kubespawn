@@ -12,6 +12,6 @@ kubectl wait --for=condition=Ready nodes --all --timeout=180s
 
 The configuration disables the default CNI. Nodes will not be ready until Cilium is installed. kube-proxy remains enabled. Prove ingress/egress denial with real traffic before using previews.
 
-The optional mappings reserve localhost ports 9080/9443 for a future Gateway data plane using NodePorts 30080/30443. They do not install Envoy Gateway or create a listener. Gateway, cert-manager/local CA, Argo CD, Kyverno, restricted deployment roles, secret handling, and baseline sequencing must be installed and tested as the next milestone. Do not deploy workloads into an unguarded namespace.
+The two-node profile maps localhost ports 9080/9443 to NodePorts 30080/30443. The small existing-cluster profile reaches the same HTTP NodePort through the loopback-only `preview-edge` Compose service, so its cluster does not need recreation. `scripts/setup-kubernetes.ps1` installs Envoy Gateway 1.8.5 and applies the administrator-owned Gateway. Local HTTPS remains future work; production requires managed DNS, certificates, and trusted edge identity.
 
 KinD is not automatically created by setup/start, and no existing Kubernetes context is modified by those scripts. See the v3 architecture for local DNS, certificates, webhook connectivity, and production separation.

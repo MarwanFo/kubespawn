@@ -25,13 +25,13 @@ public class PlatformController {
     public PlatformStatus platform() {
         boolean local = Arrays.asList(configuration.getActiveProfiles()).contains("local");
         var capabilities = local
-            ? List.of("environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "job-processing", "github-builds", "kubernetes-provisioning", "health-probes", "prometheus")
+            ? List.of("environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "job-processing", "github-builds", "kubernetes-provisioning", "private-preview-routing", "health-probes", "prometheus")
             : List.of("environment-inventory", "health-probes", "prometheus");
         boolean worker = local && configuration.getProperty("kubespawn.worker.enabled", Boolean.class, true);
         boolean github=configuration.getProperty("kubespawn.github.enabled",Boolean.class,false);
         boolean controller=local && configuration.getProperty("kubespawn.kubernetes.enabled",Boolean.class,false);
-        return new PlatformStatus("KubeSpawn", "0.5.0", local ? "local" : "oidc", controller, worker, github,
-            capabilities, "Observe workloads, then add private preview routing and edge health");
+        return new PlatformStatus("KubeSpawn", "0.6.0", local ? "local" : "oidc", controller, worker, github,
+            capabilities, "Add independent image-signature admission and production identity");
     }
 
     @GetMapping("/environments")
