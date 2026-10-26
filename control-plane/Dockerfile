@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk-alpine@sha256:fd52084c35bbac78890d95d57707d31ffc9d7a3324199e89c06be2a9dc71bfa0 AS build
+FROM eclipse-temurin:25-jdk-alpine@sha256:1e20ead9eec7234db293f1913438090d533ed47c0b9e12dc8c7627a802a44ed6 AS build
 WORKDIR /workspace
 COPY gradlew gradlew.bat build.gradle settings.gradle ./
 COPY gradle ./gradle
@@ -7,7 +7,7 @@ RUN chmod +x gradlew
 COPY src ./src
 RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon bootJar
 
-FROM eclipse-temurin:21-jre-alpine@sha256:b48e02e0ea88d7bfb305335df94923bdef394905f4147dccd52e873cf17b1088
+FROM eclipse-temurin:25-jre-alpine@sha256:b7528962e65d43064d8a8b67ba175367896bc948363ea2d3fcd7f10d34e1f048
 # Patch CVE-2026-111497 until the upstream runtime image is rebuilt.
 RUN apk add --no-cache --upgrade 'brotli-libs=1.2.1-r0'
 RUN addgroup -S kubespawn && adduser -S kubespawn -G kubespawn
