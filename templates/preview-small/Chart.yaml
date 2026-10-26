@@ -3,4 +3,4 @@ name: preview-small
 description: Workload-only API/web starter for controller-managed preview namespaces
 type: application
 version: 0.3.0
-appVersion: 0.6.0
+appVersion: 0.7.0

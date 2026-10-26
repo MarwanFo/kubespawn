@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.kubespawn.platform.api.EnvironmentService;
+import io.kubespawn.platform.identity.IdentityService;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -30,6 +31,7 @@ class PlatformDatabaseTest {
             .asCompatibleSubstituteFor("postgres"));
     @Autowired JdbcTemplate jdbc;
     @Autowired EnvironmentService environments;
+    @Autowired IdentityService identities;
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry properties) {
@@ -41,10 +43,42 @@ class PlatformDatabaseTest {
     @Test
     void flywayCreatesTheDurableFoundation() {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-            .isEqualTo(5);
-        for (String table : new String[] {"environment_sources", "environments", "jobs", "outbox_events", "audit_events"}) {
+            .isEqualTo(6);
+        for (String table : new String[] {"environment_sources", "environments", "jobs", "outbox_events", "audit_events",
+                "app_users", "user_identities", "tenants", "tenant_memberships"}) {
             assertThat(jdbc.queryForObject("SELECT to_regclass(?) IS NOT NULL", Boolean.class, table)).isTrue();
         }
+    }
+
+    @Test
+    void localAdministratorHasPersistedProfileAndTenantMembership() {
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+            "local-developer", null);
+        var profile = identities.current(authentication);
+        assertThat(profile.displayName()).isEqualTo("Local Administrator");
+        assertThat(profile.platformAdmin()).isTrue();
+        assertThat(profile.memberships()).singleElement().satisfies(membership -> {
+            assertThat(membership.tenantKey()).isEqualTo("local");
+            assertThat(membership.role()).isEqualTo("TENANT_ADMIN");
+        });
+    }
+
+    @Test
+    void administratorCanProvisionAndSuspendTenantMembership() {
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+            "local-developer", null);
+        String subject = "test-subject-" + UUID.randomUUID();
+        var created = identities.provision(authentication, "https://issuer.test", subject,
+            subject + "@example.test", "Test Developer", "local", "DEVELOPER", false, UUID.randomUUID().toString());
+        assertThat(created.memberships()).singleElement().extracting(IdentityService.Membership::role)
+            .isEqualTo("DEVELOPER");
+        var membership = created.memberships().getFirst();
+        var changed = identities.changeMembership(authentication, membership.tenantId(), created.id(),
+            "VIEWER", "SUSPENDED", UUID.randomUUID().toString());
+        assertThat(changed.memberships()).singleElement().satisfies(value -> {
+            assertThat(value.role()).isEqualTo("VIEWER");
+            assertThat(value.status()).isEqualTo("SUSPENDED");
+        });
     }
 
     @Test
@@ -63,7 +97,8 @@ class PlatformDatabaseTest {
     void inventoryMapsRealPostgresRowsThroughJpa() {
         UUID id = UUID.randomUUID();
         createEnvironment(id, createManualSource());
-        assertThat(environments.list(100)).anySatisfy(environment -> {
+        assertThat(environments.list(100, new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+            "local-developer", null))).anySatisfy(environment -> {
             assertThat(environment.id()).isEqualTo(id);
             assertThat(environment.repository()).isEqualTo("example/sample-app");
             assertThat(environment.phase()).isEqualTo("WAITING_BUILD");

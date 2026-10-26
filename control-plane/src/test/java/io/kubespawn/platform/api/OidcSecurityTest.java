@@ -1,6 +1,7 @@
 package io.kubespawn.platform.api;
 
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -41,7 +42,7 @@ class OidcSecurityTest {
 
     @Test
     void aJwtWithReadScopeCanReadInventory() throws Exception {
-        when(environments.list(50)).thenReturn(List.of());
+        when(environments.list(org.mockito.ArgumentMatchers.eq(50), any())).thenReturn(List.of());
         mvc.perform(get("/api/v1/environments").with(jwt().authorities(
             new SimpleGrantedAuthority("SCOPE_environments:read"))))
             .andExpect(status().isOk());

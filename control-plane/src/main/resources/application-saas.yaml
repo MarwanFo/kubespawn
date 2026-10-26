@@ -1,0 +1,29 @@
+spring:
+  security:
+    oauth2:
+      client:
+        provider:
+          kubespawn:
+            issuer-uri: ${OIDC_ISSUER_URI}
+        registration:
+          kubespawn:
+            provider: kubespawn
+            client-id: ${OIDC_CLIENT_ID}
+            client-secret: ${OIDC_CLIENT_SECRET}
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+
+server:
+  servlet:
+    session:
+      cookie:
+        name: KUBESPAWN_SESSION
+        http-only: true
+        secure: true
+        same-site: strict
+      timeout: 8h
+
+kubespawn:
+  worker:
+    enabled: false

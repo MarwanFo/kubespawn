@@ -24,6 +24,10 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtDecoders;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Configuration
@@ -54,7 +58,29 @@ public class SecurityConfig {
     }
 
     @Bean
-    @Profile("!local")
+    @Profile("saas")
+    SecurityFilterChain browserSecurity(HttpSecurity http) throws Exception {
+        var csrf = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        csrf.setCookieName("KUBESPAWN-XSRF");
+        csrf.setHeaderName("X-KUBESPAWN-XSRF");
+        csrf.setCookiePath("/");
+        http.csrf(value -> value.csrfTokenRepository(csrf))
+            .sessionManagement(session -> session.sessionFixation(fixation -> fixation.migrateSession()))
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health", "/actuator/health/**", "/oauth2/**", "/login/**").permitAll()
+                .requestMatchers("/api/v1/**").authenticated()
+                .anyRequest().authenticated())
+            .oauth2Login(Customizer.withDefaults())
+            .logout(logout -> logout.logoutSuccessUrl("/"))
+            .exceptionHandling(errors -> errors
+                .defaultAuthenticationEntryPointFor(new HttpStatusEntryPoint(org.springframework.http.HttpStatus.UNAUTHORIZED),
+                    PathPatternRequestMatcher.pathPattern("/api/**"))
+                .authenticationEntryPoint(new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/kubespawn")));
+        return http.build();
+    }
+
+    @Bean
+    @Profile("!local & !saas")
     SecurityFilterChain oidcSecurity(HttpSecurity http) throws Exception {
         configureBase(http);
         http.oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
@@ -62,7 +88,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    @Profile("!local")
+    @Profile("!local & !saas")
     JwtDecoder jwtDecoder(@Value("${OIDC_ISSUER_URI}") String issuer) {
         return JwtDecoders.fromIssuerLocation(issuer);
     }
@@ -101,7 +127,9 @@ public class SecurityConfig {
                 }
                 var authentication = new UsernamePasswordAuthenticationToken("local-developer", null,
                     List.of(new SimpleGrantedAuthority("SCOPE_environments:read"),
-                        new SimpleGrantedAuthority("LOCAL_LIFECYCLE_WRITE")));
+                        new SimpleGrantedAuthority("LOCAL_LIFECYCLE_WRITE"),
+                        new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN"),
+                        new SimpleGrantedAuthority("ROLE_TENANT_ADMIN")));
                 var context = SecurityContextHolder.createEmptyContext();
                 context.setAuthentication(authentication);
                 SecurityContextHolder.setContext(context);

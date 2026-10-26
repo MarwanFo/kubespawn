@@ -1,5 +1,6 @@
 package io.kubespawn.platform.api;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -37,7 +38,7 @@ class PlatformSecurityTest {
 
     @Test
     void authenticatedInventoryUsesTheDatabaseService() throws Exception {
-        when(environments.list(50)).thenReturn(List.of());
+        when(environments.list(org.mockito.ArgumentMatchers.eq(50), any())).thenReturn(List.of());
         mvc.perform(get("/api/v1/environments").header("Authorization", TOKEN))
             .andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
     }
@@ -52,6 +53,7 @@ class PlatformSecurityTest {
     void foundationDoesNotClaimToProvisionEnvironments() throws Exception {
         mvc.perform(get("/api/v1/platform").header("Authorization", TOKEN))
             .andExpect(status().isOk()).andExpect(jsonPath("$.controllerEnabled").value(false))
-            .andExpect(jsonPath("$.workerEnabled").value(true));
+            .andExpect(jsonPath("$.workerEnabled").value(true))
+            .andExpect(jsonPath("$.version").value("0.7.0"));
     }
 }

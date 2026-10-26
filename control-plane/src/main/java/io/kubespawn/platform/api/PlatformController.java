@@ -2,6 +2,7 @@ package io.kubespawn.platform.api;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import java.security.Principal;
 import java.util.Arrays;
 import java.util.List;
 import org.springframework.core.env.Environment;
@@ -24,19 +25,21 @@ public class PlatformController {
     @GetMapping("/platform")
     public PlatformStatus platform() {
         boolean local = Arrays.asList(configuration.getActiveProfiles()).contains("local");
+        boolean saas = Arrays.asList(configuration.getActiveProfiles()).contains("saas");
         var capabilities = local
-            ? List.of("environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "job-processing", "github-builds", "kubernetes-provisioning", "private-preview-routing", "health-probes", "prometheus")
-            : List.of("environment-inventory", "health-probes", "prometheus");
+            ? List.of("identity", "profiles", "tenancy", "platform-admin", "environment-inventory", "lifecycle-intents", "audit-history", "expiry-intents", "job-processing", "github-builds", "kubernetes-provisioning", "private-preview-routing", "health-probes", "prometheus")
+            : List.of("identity", "profiles", "tenancy", "platform-admin", "environment-inventory", "health-probes", "prometheus");
         boolean worker = local && configuration.getProperty("kubespawn.worker.enabled", Boolean.class, true);
         boolean github=configuration.getProperty("kubespawn.github.enabled",Boolean.class,false);
         boolean controller=local && configuration.getProperty("kubespawn.kubernetes.enabled",Boolean.class,false);
-        return new PlatformStatus("KubeSpawn", "0.6.0", local ? "local" : "oidc", controller, worker, github,
-            capabilities, "Add independent image-signature admission and production identity");
+        return new PlatformStatus("KubeSpawn", "0.7.0", local ? "local" : saas ? "saas" : "oidc", controller, worker, github,
+            capabilities, "Complete tenant-authorized lifecycle mutations and independent image-signature admission");
     }
 
     @GetMapping("/environments")
-    public EnvironmentPage environments(@RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit) {
-        return new EnvironmentPage(environments.list(limit));
+    public EnvironmentPage environments(@RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit,
+            Principal principal) {
+        return new EnvironmentPage(environments.list(limit, principal));
     }
 
     public record PlatformStatus(String name, String version, String mode, boolean controllerEnabled,

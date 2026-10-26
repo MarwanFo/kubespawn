@@ -9,6 +9,45 @@ export interface PlatformStatus {
   nextMilestone: string;
 }
 
+export interface Membership {
+  tenantId: string;
+  tenantKey: string;
+  tenantName: string;
+  role: 'VIEWER' | 'DEVELOPER' | 'MAINTAINER' | 'TENANT_ADMIN';
+  status: 'ACTIVE' | 'SUSPENDED';
+}
+
+export interface Profile {
+  id: string;
+  email: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  status: 'ACTIVE' | 'SUSPENDED';
+  platformAdmin: boolean;
+  authMode: 'local' | 'oidc';
+  memberships: Membership[];
+}
+
+export interface AdminOverview {
+  users: number;
+  activeUsers: number;
+  tenants: number;
+  activeEnvironments: number;
+  queuedEnvironments: number;
+  failedEnvironments: number;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string | null;
+  displayName: string;
+  status: 'ACTIVE' | 'SUSPENDED';
+  platformAdmin: boolean;
+  createdAt: string;
+  lastSeenAt: string | null;
+  memberships: Membership[];
+}
+
 export interface Environment {
   id: string;
   repository: string;
@@ -83,15 +122,19 @@ function apiPath(path: string): string {
 }
 
 export async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const method = (options.method ?? 'GET').toUpperCase();
+  const csrf = document.cookie.split('; ').find(value => value.startsWith('KUBESPAWN-XSRF='))?.split('=')[1];
   const response = await fetch(apiPath(path), {
     ...options,
+    credentials: 'same-origin',
     signal: AbortSignal.timeout(15_000),
-    headers: { Accept: 'application/json', ...options.headers },
+    headers: { Accept: 'application/json', ...(!['GET', 'HEAD', 'OPTIONS'].includes(method) && csrf
+      ? { 'X-KUBESPAWN-XSRF': decodeURIComponent(csrf) } : {}), ...options.headers },
   });
   if (!response.ok) {
     const problem = await response.json().catch(() => null) as { detail?: string } | null;
     throw new ApiError(response.status === 401
-      ? 'API authentication failed. Check the local token in .env and restart the portal.'
+      ? 'Your session is not authenticated. Sign in again, or restart the local proxy after changing its token.'
       : problem?.detail || `API request failed (${response.status}). Check the backend and database.`, response.status);
   }
   return response.json() as Promise<T>;
@@ -116,4 +159,31 @@ export function deleteEnvironment(environment: Environment): Promise<MutationRes
   return requestJson(`/api/v1/environments/${environment.id}`, {
     method: 'DELETE', headers: { 'If-Match': `"${environment.intentVersion}"` },
   });
+}
+
+export function updateProfile(displayName: string, avatarUrl: string): Promise<Profile> {
+  return requestJson('/api/v1/me', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ displayName, avatarUrl }),
+  });
+}
+
+export function provisionUser(body: { issuer: string; subject: string; email: string; displayName: string;
+  tenantKey: string; role: Membership['role']; platformAdmin: boolean }): Promise<AdminUser> {
+  return requestJson('/api/v1/admin/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+}
+
+export function updateMembership(tenantId: string, userId: string, role: Membership['role'],
+  status: Membership['status']): Promise<AdminUser> {
+  return requestJson(`/api/v1/admin/tenants/${tenantId}/members/${userId}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, status }),
+  });
+}
+
+export async function logout(): Promise<void> {
+  const csrf = document.cookie.split('; ').find(value => value.startsWith('KUBESPAWN-XSRF='))?.split('=')[1];
+  await fetch('/logout', { method: 'POST', credentials: 'same-origin',
+    headers: csrf ? { 'X-KUBESPAWN-XSRF': decodeURIComponent(csrf) } : {} });
+  window.location.assign('/');
 }

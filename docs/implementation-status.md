@@ -3,9 +3,10 @@
 ## Included
 
 - Reproducible Spring Boot/Gradle and React/Vite projects, dependency locks, Dockerfiles, local Compose, and Windows helpers.
-- Local bearer authentication and a separate OIDC resource-server configuration that fails closed without its issuer.
-- PostgreSQL migrations for source identity, environment generations, jobs, outbox events, and independent audit retention.
-- Inventory from PostgreSQL through JPA; readiness probes and authenticated Prometheus metrics.
+- Local bearer authentication, a browser OAuth2/OIDC session profile with CSRF protection, and a separate OIDC resource-server configuration that fails closed without its issuer.
+- PostgreSQL migrations for users, external identities, tenants, memberships, source identity, environment generations, jobs, outbox events, and independent audit retention.
+- Persisted Profile and Admin experiences for user metadata, platform access, tenant roles, identity provisioning, suspension, and role changes.
+- Tenant-filtered inventory from PostgreSQL; readiness probes and authenticated Prometheus metrics.
 - Local manual create/extend/delete intents, per-actor create idempotency, version preconditions, owner checks, and transactional job/audit/outbox persistence.
 - A local expiry scanner that requests absence once and records suppression, plus observed Argo/namespace cleanup and capacity release.
 - A local durable job worker with atomic claims, renewable job and environment leases, monotonic fencing tokens, bounded retries, timeout cancellation, crash recovery, and intent checks before processing and result persistence.
@@ -22,17 +23,17 @@
 - Confirmed Argo/namespace/project cleanup, retained capacity through termination, continuing cleanup retries and tombstone monitoring.
 - Envoy Gateway routing with controller-owned HTTPRoutes, owner-scoped HttpOnly preview sessions, anonymous denial, authenticated edge probes, honest READY/serving-revision commits, and route-first cleanup.
 
-## Next: lifecycle vertical slice
+## Next: tenant-authorized product lifecycle
 
-1. GitHub App registration, installation, publication and a real verified run have been exercised locally. Keep local credentials/tunnel current.
-2. Add PR source eligibility/current-state reconciliation and independent provenance/admission checks. The current build verification supports manual requests on an approved branch and trusts its reviewed producer.
-3. Extend the implemented local cluster capacity slots to tenant/project resource budgets and production cluster headroom.
-4. Extend the local baseline/Application/AppProject implementation to a production application contract and independently enforced provenance admission.
-5. Observed migration readiness and GitHub deployment notifications; workload and local edge readiness are implemented.
-6. Extend implemented TTL suppression and namespace/Argo cleanup to external volumes, providers, credentials, fleet orphan recovery and restore quarantine.
+1. Add an explicit tenant/project context to repository enrollment and every create, extend, delete, retry, build, preview-session, and audit operation.
+2. Enforce `VIEWER`, `DEVELOPER`, `MAINTAINER`, and `TENANT_ADMIN` permissions in the service layer; never rely on portal visibility for authorization.
+3. Add tenant/project resource budgets, concurrency quotas, retention policy, and production cluster headroom to capacity admission.
+4. Add PR source eligibility/current-state reconciliation and independent provenance/admission checks. Current build verification supports manual requests on an approved branch and trusts its reviewed producer.
+5. Add OIDC browser integration tests, invitation/activation flows, selected-tenant behavior, and authenticated preview session exchange.
+6. Extend the local baseline/Application/AppProject implementation to a production application contract, then extend cleanup to external volumes, providers, credentials, fleet orphan recovery, and restore quarantine.
 
 ## Before an internal pilot
 
-Complete OIDC audience checks, project/team authorization and tenancy predicates, browser login and preview authorization, Cilium enforcement tests, wildcard TLS/DNS, secrets, telemetry retention, database restore, and cleanup runbooks. Add the rest of the architecture's build/condition/capacity/usage records through new migrations when their feature contracts are implemented.
+Complete OIDC provider acceptance tests and audience policy, project/team authorization, tenant-aware writes, quotas, invitation recovery, Cilium enforcement tests, wildcard TLS/DNS, secret management, telemetry retention, database restore, billing/usage records, and cleanup runbooks. Deployment begins only after these application and operations gates are demonstrated.
 
-The worker is connected in local mode. Without GitHub setup it reports `GITHUB_SETUP_REQUIRED`; with verified evidence it can move to `QUEUED`. Kubernetes is separately opt-in: enabled requests can enter `PROVISIONING`, authenticated edge readiness permits `READY`, and confirmed absence permits `DESTROYED`. Current writes remain local-only until repository/team and tenant authorization are implemented. Do not manually insert production-like environments into the local database to make the dashboard look populated.
+The worker is connected in local mode. Without GitHub setup it reports `GITHUB_SETUP_REQUIRED`; with verified evidence it can move to `QUEUED`. Kubernetes is separately opt-in: enabled requests can enter `PROVISIONING`, authenticated edge readiness permits `READY`, and confirmed absence permits `DESTROYED`. Current lifecycle writes remain local-only until repository/team, project, role, and tenant authorization are implemented. Do not manually insert production-like environments into the local database to make the dashboard look populated.
