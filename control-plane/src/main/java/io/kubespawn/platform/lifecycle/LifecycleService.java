@@ -1,5 +1,6 @@
 package io.kubespawn.platform.lifecycle;
 
+import io.kubespawn.platform.admin.QuotaService;
 import io.kubespawn.platform.api.EnvironmentSummary;
 import io.kubespawn.platform.worker.JobStore;
 import java.nio.charset.StandardCharsets;
@@ -24,8 +25,21 @@ import org.springframework.transaction.annotation.Transactional;
 public class LifecycleService {
     private final JdbcTemplate jdbc;
     private final JobStore jobs;
+    private final QuotaService quotaService;
+    private final io.kubespawn.platform.usage.UsageService usageService;
 
-    public LifecycleService(JdbcTemplate jdbc, JobStore jobs) { this.jdbc = jdbc; this.jobs = jobs; }
+    public LifecycleService(JdbcTemplate jdbc, JobStore jobs, QuotaService quotaService) {
+        this(jdbc, jobs, quotaService, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public LifecycleService(JdbcTemplate jdbc, JobStore jobs, QuotaService quotaService,
+                            @org.springframework.beans.factory.annotation.Autowired(required = false) io.kubespawn.platform.usage.UsageService usageService) {
+        this.jdbc = jdbc;
+        this.jobs = jobs;
+        this.quotaService = quotaService;
+        this.usageService = usageService;
+    }
 
     public record Mutation(EnvironmentSummary environment, UUID operationId) {}
     public record AuditEvent(UUID id, String action, String actor, String requestId, Instant createdAt) {}
@@ -33,7 +47,7 @@ public class LifecycleService {
     private record Owned(EnvironmentSummary summary, UUID sourceId, String owner) {}
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public Mutation create(CreateEnvironmentRequest request, UUID key, String actor, String requestId) {
+    public Mutation create(UUID tenantId, UUID projectId, CreateEnvironmentRequest request, UUID key, String actor, String requestId) {
         String repository = request.repository().toLowerCase(Locale.ROOT);
         String fingerprint = fingerprint(repository + "\0" + request.ref() + "\0" + request.ttlHours());
         // ON CONFLICT waits for a concurrent claim; a subsequent READ COMMITTED statement sees its result.
@@ -49,36 +63,73 @@ public class LifecycleService {
             throw failure(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_REUSED", "This request key was already used with different values.");
         }
         if (claim.environmentId() != null) {
-            return new Mutation(owned(claim.environmentId(), actor, false).summary(), claim.operationId());
+            return new Mutation(owned(tenantId, projectId, claim.environmentId(), actor, false).summary(), claim.operationId());
         }
+
+        quotaService.reserveCapacity(tenantId, projectId, 1000, 2048, request.ttlHours());
+
+        String tenantKey = jdbc.queryForObject("SELECT tenant_key FROM tenants WHERE id=?", String.class, tenantId);
+        String projectKey = jdbc.queryForObject("SELECT project_key FROM projects WHERE id=?", String.class, projectId);
 
         Instant now = databaseNow();
         UUID source = UUID.randomUUID();
         UUID environment = UUID.randomUUID();
         String namespace = "ks-man-" + environment.toString().replace("-", "");
         jdbc.update("""
-            INSERT INTO environment_sources(id, tenant_key, project_key, repository_name,
+            INSERT INTO environment_sources(id, tenant_id, project_id, tenant_key, project_key, repository_name,
                 source_kind, manual_request_id, requested_ref, source_state, created_at, updated_at)
-            VALUES (?, 'local', 'manual', ?, 'MANUAL', ?, ?, 'MANUAL', ?, ?)
-            """, source, repository, environment, request.ref(), timestamp(now), timestamp(now));
+            VALUES (?, ?, ?, ?, ?, ?, 'MANUAL', ?, ?, 'MANUAL', ?, ?)
+            """, source, tenantId, projectId, tenantKey, projectKey, repository, environment, request.ref(), timestamp(now), timestamp(now));
         jdbc.update("""
-            INSERT INTO environments(id, source_id, repository_name, cluster_id, namespace, owner_actor,
-                requested_ref, desired_state, phase, expires_at, created_at, updated_at)
-            VALUES (?, ?, ?, 'local', ?, ?, ?, 'ACTIVE', 'WAITING_BUILD', ?, ?, ?)
-            """, environment, source, repository, namespace, actor, request.ref(),
+            INSERT INTO environments(id, tenant_id, project_id, source_id, repository_name, cluster_id, namespace, owner_actor,
+                requested_ref, desired_state, phase, cpu_millicores, memory_mb, storage_mb, expires_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'local', ?, ?, ?, 'ACTIVE', 'WAITING_BUILD', 1000, 2048, 5120, ?, ?, ?)
+            """, environment, tenantId, projectId, source, repository, namespace, actor, request.ref(),
             timestamp(now.plus(Duration.ofHours(request.ttlHours()))), timestamp(now), timestamp(now));
+        if (usageService != null) {
+            usageService.openInterval(tenantId, projectId, environment, repository, 1000, 2048, 5120);
+        }
         UUID operation = recordIntent(environment, 0, "RECONCILE_ENVIRONMENT", "ENVIRONMENT_REQUESTED", actor, requestId);
         jdbc.update("UPDATE api_idempotency SET environment_id=?, operation_id=? WHERE actor=? AND idempotency_key=?",
             environment, operation, actor, key);
-        return new Mutation(owned(environment, actor, false).summary(), operation);
+        return new Mutation(owned(tenantId, projectId, environment, actor, false).summary(), operation);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Mutation create(CreateEnvironmentRequest request, UUID key, String actor, String requestId) {
+        UUID defaultTenantId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID defaultProjectId = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        return create(defaultTenantId, defaultProjectId, request, key, actor, requestId);
+    }
+
+    @Transactional(readOnly = true)
+    public EnvironmentSummary get(UUID tenantId, UUID projectId, UUID id, String actor) {
+        Owned environment = load(id, false);
+        if (environment.summary().tenantId() != null && !tenantId.equals(environment.summary().tenantId())) {
+            throw failure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Environment not found in organization.");
+        }
+        if (environment.summary().projectId() != null && !projectId.equals(environment.summary().projectId())) {
+            throw failure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Environment not found in project.");
+        }
+        return environment.summary();
     }
 
     @Transactional(readOnly = true)
     public EnvironmentSummary get(UUID id, String actor) { return owned(id, actor, false).summary(); }
 
     @Transactional
+    public Mutation extend(UUID tenantId, UUID projectId, UUID id, long version, Instant newExpiry, String actor, String requestId) {
+        Owned environment = owned(tenantId, projectId, id, actor, true);
+        return performExtend(environment, version, newExpiry, actor, requestId);
+    }
+
+    @Transactional
     public Mutation extend(UUID id, long version, Instant newExpiry, String actor, String requestId) {
         Owned environment = owned(id, actor, true);
+        return performExtend(environment, version, newExpiry, actor, requestId);
+    }
+
+    private Mutation performExtend(Owned environment, long version, Instant newExpiry, String actor, String requestId) {
         EnvironmentSummary current = environment.summary();
         requireActive(current);
         requireVersion(current, version);
@@ -90,19 +141,29 @@ public class LifecycleService {
             throw failure(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_EXPIRY", "Choose a later expiry within 72 hours of creation.");
         }
         jdbc.update("UPDATE environments SET expires_at=?, intent_version=intent_version+1, updated_at=? WHERE id=?",
-            timestamp(newExpiry), timestamp(now), id);
-        UUID operation = recordIntent(id, version + 1, "RECONCILE_ENVIRONMENT", "EXPIRY_EXTENDED", actor, requestId);
-        return new Mutation(owned(id, actor, false).summary(), operation);
+            timestamp(newExpiry), timestamp(now), current.id());
+        UUID operation = recordIntent(current.id(), version + 1, "RECONCILE_ENVIRONMENT", "EXPIRY_EXTENDED", actor, requestId);
+        return new Mutation(load(current.id(), false).summary(), operation);
+    }
+
+    @Transactional
+    public Mutation delete(UUID tenantId, UUID projectId, UUID id, long version, String actor, String requestId) {
+        Owned environment = owned(tenantId, projectId, id, actor, true);
+        return performDelete(environment, version, actor, requestId);
     }
 
     @Transactional
     public Mutation delete(UUID id, long version, String actor, String requestId) {
         Owned environment = owned(id, actor, true);
+        return performDelete(environment, version, actor, requestId);
+    }
+
+    private Mutation performDelete(Owned environment, long version, String actor, String requestId) {
         if (environment.summary().desiredState().equals("ABSENT")) {
             UUID operation = jdbc.query("""
                 SELECT id FROM jobs WHERE environment_id=? AND job_type='TEARDOWN_ENVIRONMENT'
                 ORDER BY intent_version DESC LIMIT 1
-                """, (rs, row) -> rs.getObject(1, UUID.class), id).stream().findFirst().orElseThrow(() ->
+                """, (rs, row) -> rs.getObject(1, UUID.class), environment.summary().id()).stream().findFirst().orElseThrow(() ->
                     failure(HttpStatus.CONFLICT, "NO_TEARDOWN_OPERATION", "This historical request has no tracked teardown operation."));
             return new Mutation(environment.summary(), operation);
         }
@@ -127,8 +188,24 @@ public class LifecycleService {
     public JobStore.Operation operation(UUID id, String actor) { return jobs.operation(id, actor); }
 
     @Transactional(readOnly = true)
+    public List<AuditEvent> audit(UUID tenantId, UUID projectId, UUID id, String actor) {
+        Owned environment = load(id, false);
+        if (environment.summary().tenantId() != null && !tenantId.equals(environment.summary().tenantId())) {
+            throw failure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Environment not found in organization.");
+        }
+        if (environment.summary().projectId() != null && !projectId.equals(environment.summary().projectId())) {
+            throw failure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Environment not found in project.");
+        }
+        return queryAudit(id);
+    }
+
+    @Transactional(readOnly = true)
     public List<AuditEvent> audit(UUID id, String actor) {
         owned(id, actor, false);
+        return queryAudit(id);
+    }
+
+    private List<AuditEvent> queryAudit(UUID id) {
         return jdbc.query("""
             SELECT id, action, actor, request_id, created_at FROM audit_events WHERE environment_id=?
             ORDER BY created_at DESC, id DESC LIMIT 50
@@ -157,8 +234,8 @@ public class LifecycleService {
             """, operation, environment, type, version, environment + ":" + version + ":" + type,
             environment.toString(), version);
         jdbc.update("""
-            INSERT INTO audit_events(id, environment_id, actor, action, request_id, details, created_at)
-            SELECT ?, id, ?, ?, ?, jsonb_build_object('intentVersion', ?::bigint, 'operationId', ?::text,
+            INSERT INTO audit_events(id, tenant_id, project_id, environment_id, actor, action, request_id, details, created_at)
+            SELECT ?, tenant_id, project_id, id, ?, ?, ?, jsonb_build_object('intentVersion', ?::bigint, 'operationId', ?::text,
                 'desiredState', desired_state, 'phase', phase, 'expiresAt', expires_at,
                 'repository', repository_name, 'requestedRef', requested_ref), clock_timestamp()
             FROM environments WHERE id=?
@@ -168,6 +245,20 @@ public class LifecycleService {
             VALUES (?, ?, ?, ?, jsonb_build_object('environmentId', ?::text, 'operationId', ?::text, 'intentVersion', ?::bigint))
             """, UUID.randomUUID(), environment, version, action, environment.toString(), operation.toString(), version);
         return operation;
+    }
+
+    private Owned owned(UUID tenantId, UUID projectId, UUID id, String actor, boolean lock) {
+        Owned environment = load(id, lock);
+        if (environment.summary().tenantId() != null && !tenantId.equals(environment.summary().tenantId())) {
+            throw failure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Environment not found in organization.");
+        }
+        if (environment.summary().projectId() != null && !projectId.equals(environment.summary().projectId())) {
+            throw failure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Environment not found in project.");
+        }
+        if (actor != null && !actor.equals("local-developer") && !environment.owner().equals(actor)) {
+            throw failure(HttpStatus.FORBIDDEN, "FORBIDDEN", "Cannot mutate another user's environment.");
+        }
+        return environment;
     }
 
     private Owned owned(UUID id, String actor, boolean lock) {
@@ -185,7 +276,11 @@ public class LifecycleService {
     }
 
     private EnvironmentSummary summary(ResultSet rs) throws SQLException {
-        return new EnvironmentSummary(rs.getObject("id", UUID.class), rs.getString("repository_name"),
+        return new EnvironmentSummary(
+            rs.getObject("id", UUID.class),
+            rs.getObject("tenant_id", UUID.class),
+            rs.getObject("project_id", UUID.class),
+            rs.getString("repository_name"),
             rs.getString("namespace"), rs.getString("desired_state"), rs.getString("phase"),
             rs.getString("requested_revision"), rs.getString("serving_revision"),
             rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("expires_at").toInstant(),

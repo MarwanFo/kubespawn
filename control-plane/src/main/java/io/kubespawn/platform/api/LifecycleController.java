@@ -31,8 +31,67 @@ import org.springframework.web.bind.annotation.RestController;
 public class LifecycleController {
     private final LifecycleService lifecycle;
     private final JobStore jobs;
+    private final io.kubespawn.platform.identity.AuthorizationService authorization;
 
-    public LifecycleController(LifecycleService lifecycle, JobStore jobs) { this.lifecycle = lifecycle; this.jobs = jobs; }
+    public LifecycleController(LifecycleService lifecycle, JobStore jobs,
+            io.kubespawn.platform.identity.AuthorizationService authorization) {
+        this.lifecycle = lifecycle;
+        this.jobs = jobs;
+        this.authorization = authorization;
+    }
+
+    // Scoped endpoints for Phase 08
+    @PostMapping("/tenants/{tenantId}/projects/{projectId}/environments")
+    public ResponseEntity<LifecycleService.Mutation> createScoped(
+            @PathVariable UUID tenantId, @PathVariable UUID projectId,
+            @Valid @RequestBody CreateEnvironmentRequest body,
+            @RequestHeader("Idempotency-Key") UUID key, Principal actor, HttpServletRequest request) {
+        authorization.requireProjectAccess(actor, tenantId, projectId);
+        authorization.requireRole(actor, tenantId, "DEVELOPER", "PORTAL_ADMIN");
+        var result = lifecycle.create(tenantId, projectId, body, key, actor.getName(), requestId(request));
+        return accepted(result)
+            .location(URI.create("/api/v1/tenants/" + tenantId + "/projects/" + projectId + "/environments/" + result.environment().id()))
+            .body(result);
+    }
+
+    @GetMapping("/tenants/{tenantId}/projects/{projectId}/environments/{id}")
+    public ResponseEntity<EnvironmentSummary> getScoped(
+            @PathVariable UUID tenantId, @PathVariable UUID projectId,
+            @PathVariable UUID id, Principal actor) {
+        authorization.requireProjectAccess(actor, tenantId, projectId);
+        var result = lifecycle.get(tenantId, projectId, id, actor.getName());
+        return ResponseEntity.ok().eTag(Long.toString(result.intentVersion())).body(result);
+    }
+
+    @PatchMapping("/tenants/{tenantId}/projects/{projectId}/environments/{id}/expiry")
+    public ResponseEntity<LifecycleService.Mutation> extendScoped(
+            @PathVariable UUID tenantId, @PathVariable UUID projectId,
+            @PathVariable UUID id, @Valid @RequestBody ExpiryRequest body,
+            @RequestHeader(value = "If-Match", required = false) String match, Principal actor, HttpServletRequest request) {
+        authorization.requireProjectAccess(actor, tenantId, projectId);
+        authorization.requireRole(actor, tenantId, "DEVELOPER", "PORTAL_ADMIN");
+        var result = lifecycle.extend(tenantId, projectId, id, version(match), body.expiresAt(), actor.getName(), requestId(request));
+        return accepted(result).body(result);
+    }
+
+    @DeleteMapping("/tenants/{tenantId}/projects/{projectId}/environments/{id}")
+    public ResponseEntity<LifecycleService.Mutation> deleteScoped(
+            @PathVariable UUID tenantId, @PathVariable UUID projectId,
+            @PathVariable UUID id,
+            @RequestHeader(value = "If-Match", required = false) String match, Principal actor, HttpServletRequest request) {
+        authorization.requireProjectAccess(actor, tenantId, projectId);
+        authorization.requireRole(actor, tenantId, "DEVELOPER", "PORTAL_ADMIN");
+        var result = lifecycle.delete(tenantId, projectId, id, version(match), actor.getName(), requestId(request));
+        return accepted(result).body(result);
+    }
+
+    @GetMapping("/tenants/{tenantId}/projects/{projectId}/environments/{id}/audit")
+    public List<LifecycleService.AuditEvent> auditScoped(
+            @PathVariable UUID tenantId, @PathVariable UUID projectId,
+            @PathVariable UUID id, Principal actor) {
+        authorization.requireProjectAccess(actor, tenantId, projectId);
+        return lifecycle.audit(tenantId, projectId, id, actor.getName());
+    }
 
     @PostMapping("/environments")
     public ResponseEntity<LifecycleService.Mutation> create(@Valid @RequestBody CreateEnvironmentRequest body,

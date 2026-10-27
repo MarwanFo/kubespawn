@@ -1,8 +1,10 @@
 # KubeSpawn
 
-An internal developer platform for disposable pull-request environments.
+A developer platform for creating, testing, reviewing, and operating disposable application environments.
 
-**Current milestone: SaaS identity and tenancy foundation (v0.7).** KubeSpawn now persists users, external identities, tenants, memberships, tenant roles, profile data, and platform-administrator status. Inventory is tenant-filtered, the portal includes Profile and Admin areas, and the application has a separate browser OAuth2/OIDC session mode with CSRF protection. The existing authenticated private-preview lifecycle remains available for local verification while its mutations are converted from owner-only local authorization to tenant/project policy. Deployment intentionally remains the final phase.
+**Current code: v0.7 infrastructure MVP and partial identity scaffolding.** The local preview lifecycle, persisted identity/tenant tables, profile/admin forms, and OIDC configuration are reusable foundations. Complete Login/Sign-up, account recovery, the requested role model, QA reviews, tenant-authorized lifecycle operations, and production browser-security acceptance are still to be built.
+
+**Target product: architecture v4.** The SaaS will provide branded Login and Sign-up, organization/project onboarding, and three roles: **Developer**, **QA/Reviewer**, and **Portal Admin/DevOps**. Follow [the current architecture](docs/architecture.md), [the role/security contract](docs/security-and-permissions.md), and [the 18-phase delivery plan](docs/saas-delivery-plan.md). Phase 00 defines the product; Phase 01 begins engineering setup. External deployment is the final phase, Phase 17.
 
 ## Start locally on Windows
 
@@ -70,7 +72,10 @@ Gradle Wrapper 9.8.2 is included with its distribution SHA-256. npm and Gradle d
 | `templates/baseline/` | Controller-owned namespace baseline example |
 | `scripts/` | Windows setup, start/stop, development, smoke, and verification helpers |
 | `docs/` | Delivery scope, architectural decisions, and operating notes |
-| `kubespawn_idp_architecture_v3.md` | Revised architecture contract |
+| `docs/architecture.md` | Current SaaS architecture v4 |
+| `docs/saas-delivery-plan.md` | Full-stack delivery phases and exit criteria |
+| `docs/security-and-permissions.md` | Developer, QA/Reviewer, and Portal Admin authorization contract |
+| `kubespawn_idp_architecture_v3.md` | Retained infrastructure/lifecycle reference; v4 replaces product scope, roles, auth, and phase order |
 
 ## API available now
 
@@ -109,8 +114,8 @@ The local worker polls every 2 seconds. Expected prerequisite waits use `WAITING
 
 GitHub delivery metadata is a wakeup rather than build authority. The verifier independently checks current run identity/attempt, approved workflow bytes, successful conclusion, source/request binding, complete image set, exact registry paths, and downloaded artifact SHA-256. A verified build alone cannot create or reactivate an environment. The supplied workflow runs tests/builds/scans without registry write permission and publishes from a separate runner. It is disabled until the repository variable `KUBESPAWN_PUBLISH_IMAGES` is explicitly enabled. See [the verification contract](docs/github-build-verification.md).
 
-The local profile accepts the generated development token and resolves it to a persisted bootstrap administrator in the local tenant. It exists only for development and verification. The `saas` profile uses an OAuth2 authorization-code browser session backed by an external OIDC provider, a secure HttpOnly session cookie, session-fixation protection, and cookie/header CSRF validation. The separate default resource-server mode remains available for scoped machine/API tokens. Unknown external identities fail closed until a platform administrator provisions them.
+The local profile accepts the generated development token and resolves it to a persisted bootstrap administrator in the local tenant. It exists only for development and verification. The `saas` profile contains partial OAuth2/OIDC browser-session configuration; complete provider setup, branded account pages, callback/logout integration, shared sessions, SPA CSRF bootstrap/refresh, and browser acceptance tests are pending. The separate default resource-server mode remains available for scoped machine/API tokens. Current unknown identities fail closed until provisioned; the target architecture replaces that behavior with verified onboarding-only registration and explicit membership activation.
 
 The Compose portal is still a **local development proxy** that inserts the bootstrap token. Browser mutations must have an Origin matching the proxy's forwarded Host; the local Vite and Compose proxies preserve it. Do not expose or reuse that proxy configuration in production. Tenant-filtered reads are implemented, but lifecycle writes remain local-only until the next milestone applies tenant/project roles, repository mappings, and quotas to every mutation. The base stack has no Kubernetes credentials; only the explicit ignored Kubernetes overlay mounts the restricted controller credential.
 
-See [the SaaS foundation](docs/saas-foundation.md), [implementation status](docs/implementation-status.md), [preview routing](docs/preview-routing.md), [GitHub setup](docs/github-setup.md), [GitHub verification results](docs/github-verification.md), [worker behavior](docs/job-worker.md), [worker verification](docs/worker-verification.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the architecture specification](kubespawn_idp_architecture_v3.md).
+See [the current SaaS architecture](docs/architecture.md), [the full delivery plan](docs/saas-delivery-plan.md), [security and permissions](docs/security-and-permissions.md), [the v0.7 foundation](docs/saas-foundation.md), [implementation status](docs/implementation-status.md), [preview routing](docs/preview-routing.md), [GitHub setup](docs/github-setup.md), [GitHub verification results](docs/github-verification.md), [worker behavior](docs/job-worker.md), [worker verification](docs/worker-verification.md), [lifecycle verification](docs/lifecycle-verification.md), [initial setup verification](docs/setup-verification.md), [the ownership decision](docs/decisions/0001-lifecycle-ownership.md), and [the retained lifecycle specification](kubespawn_idp_architecture_v3.md).

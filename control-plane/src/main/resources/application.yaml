@@ -42,6 +42,11 @@ kubespawn:
     app-id: ${GITHUB_APP_ID:}
     private-key-file: ${GITHUB_APP_PRIVATE_KEY_FILE:}
     webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+  notifications:
+    mailpit-url: ${MAILPIT_API_URL:http://localhost:8025/api/v1/send}
+    sender-email: ${NOTIFICATION_SENDER_EMAIL:notifications@kubespawn.io}
+    sender-name: ${NOTIFICATION_SENDER_NAME:KubeSpawn}
+    portal-base-url: ${PORTAL_BASE_URL:http://localhost:5173}
 
 management:
   endpoints:

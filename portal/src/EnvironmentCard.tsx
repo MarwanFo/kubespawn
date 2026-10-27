@@ -1,19 +1,28 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpRight, Box, Clock3, History, Trash2 } from 'lucide-react';
-import { deleteEnvironment, extendEnvironment, getJson, retryOperation } from './api';
+import { ArrowUpRight, Box, Clock3, History, Trash2, Activity, CheckSquare } from 'lucide-react';
+import { deleteEnvironment, extendEnvironment, getJson, retryOperation, createPreviewTicket } from './api';
 import type { AuditEvent, BuildProgress, Environment, Operation, ProvisioningProgress } from './api';
+import { useWorkspace } from './context/WorkspaceContext';
+import { DiagnosticsModal } from './components/DiagnosticsModal';
+import { RequestReviewModal } from './components/RequestReviewModal';
 
 export function EnvironmentCard({ environment, canManage, operation, trackProgress, build, provisioning }: {
   environment: Environment; canManage: boolean; operation?: Operation; trackProgress: boolean; build?: BuildProgress; provisioning?: ProvisioningProgress;
 }) {
   const client = useQueryClient();
+  const { activeTenant, activeProject } = useWorkspace();
   const [showAudit, setShowAudit] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [ticketError, setTicketError] = useState('');
+
   const audit = useQuery({
     queryKey: ['audit', environment.id], queryFn: () => getJson<AuditEvent[]>(`/api/v1/environments/${environment.id}/audit`),
     enabled: showAudit,
   });
+
   const action = useMutation({
     mutationFn: async (type: 'extend' | 'delete' | 'retry') => {
       if (type === 'retry') {
@@ -36,6 +45,18 @@ export function EnvironmentCard({ environment, canManage, operation, trackProgre
       void client.invalidateQueries({ queryKey: ['audit', environment.id] });
     },
   });
+
+  const handleOpenPreview = async () => {
+    if (!activeTenant || !activeProject) return;
+    try {
+      setTicketError('');
+      const res = await createPreviewTicket(activeTenant.tenantId, activeProject.id, environment.id);
+      window.open(res.exchangeUrl, '_blank', 'noopener,noreferrer');
+    } catch (err: any) {
+      setTicketError(err?.message || 'Failed to generate preview exchange ticket.');
+    }
+  };
+
   const active = environment.desiredState === 'ACTIVE';
   const unexpired = Date.parse(environment.expiresAt) > Date.now();
   const canExtend = active && unexpired && Date.parse(environment.expiresAt) < Date.parse(environment.createdAt) + 72 * 3_600_000 - 1000;
@@ -56,6 +77,8 @@ export function EnvironmentCard({ environment, canManage, operation, trackProgre
     BUILD_DISPATCH_FAILED: 'Build dispatch needs attention', VERIFIED: 'Build verified',
   };
 
+  const isReady = environment.phase === 'READY';
+
   return <article className="environment-card">
     <div className="environment-main"><span className="environment-icon"><Box size={21} /></span><div className="environment-identity"><strong>{environment.repository}</strong><span>{environment.requestedRef} <span aria-hidden="true">·</span> v{environment.intentVersion}</span></div><span className={`phase-badge ${environment.phase === 'READY' ? 'ready' : active ? 'waiting' : 'terminating'}`}>{phase}</span></div>
     <div className="environment-meta"><span title={environment.namespace}>{environment.namespace}</span><span><Clock3 size={12} />Expires {new Date(environment.expiresAt).toLocaleString()}</span></div>
@@ -75,12 +98,52 @@ export function EnvironmentCard({ environment, canManage, operation, trackProgre
       </> : <p>Refreshing operation progress for intent v{environment.intentVersion}…</p>}
     </div>}
     <div className="environment-actions">
-      {canManage && <>{environment.phase === 'READY' && provisioning?.previewUrl && <form method="post" action={`/api/v1/kubernetes/environments/${environment.id}/preview-session`} target="_blank"><button className="small-button preview-button" type="submit"><ArrowUpRight size={13} />Open preview</button></form>}<button className="small-button" disabled={!canExtend || action.isPending} onClick={() => action.mutate('extend')}><Clock3 size={13} />Extend up to 4h</button><button className="small-button danger-button" disabled={!active || action.isPending} onClick={() => setConfirmDelete(true)}><Trash2 size={13} />Request deletion</button><button className="small-button audit-button" onClick={() => setShowAudit(!showAudit)} aria-expanded={showAudit}><History size={13} />Activity</button></>}
+      {isReady && (
+        <button className="small-button preview-button" onClick={handleOpenPreview} title="Open private preview via one-time exchange ticket">
+          <ArrowUpRight size={13} /> Open preview
+        </button>
+      )}
+      <button className="small-button diagnostics-button" onClick={() => setShowDiagnostics(true)} title="View live diagnostics, runtime conditions, and logs">
+        <Activity size={13} /> Diagnostics
+      </button>
+      {canManage && isReady && (
+        <button className="small-button review-button" onClick={() => setShowReviewModal(true)} title="Request QA validation for this preview deployment">
+          <CheckSquare size={13} /> Request QA
+        </button>
+      )}
+      {canManage && <>
+        <button className="small-button" disabled={!canExtend || action.isPending} onClick={() => action.mutate('extend')}><Clock3 size={13} />Extend up to 4h</button>
+        <button className="small-button danger-button" disabled={!active || action.isPending} onClick={() => setConfirmDelete(true)}><Trash2 size={13} />Request deletion</button>
+        <button className="small-button audit-button" onClick={() => setShowAudit(!showAudit)} aria-expanded={showAudit}><History size={13} />Activity</button>
+      </>}
       {action.isPending && <span className="action-feedback" role="status">Saving intent…</span>}
     </div>
+    {ticketError && <div role="alert" className="inline-error">{ticketError}</div>}
     {confirmDelete && <div className="delete-confirmation"><p>Request deletion of this generation? It cannot be reactivated.</p><button className="small-button" disabled={action.isPending} onClick={() => setConfirmDelete(false)}>Keep request</button><button className="small-button danger-button" disabled={action.isPending} onClick={() => action.mutate('delete')}>Confirm deletion request</button></div>}
     {action.error && <div role="alert" className="inline-error">{action.error.message}</div>}
     {action.isSuccess && <p role="status" className="action-feedback">Intent saved · tracking operation {action.data.operationId.slice(0, 8)}.</p>}
     {showAudit && <div className="audit-history"><h3>Activity</h3>{audit.isPending ? <p>Loading activity…</p> : audit.error ? <p role="alert">{audit.error.message}</p> : <ol>{audit.data?.map(event => <li key={event.id}><span>{event.action.replaceAll('_', ' ').toLowerCase()}</span><small>{event.actor} · {new Date(event.createdAt).toLocaleString()}</small></li>)}</ol>}</div>}
+
+    {showDiagnostics && (
+      <DiagnosticsModal
+        environmentId={environment.id}
+        repository={environment.repository}
+        requestedRef={environment.requestedRef}
+        onClose={() => setShowDiagnostics(false)}
+      />
+    )}
+
+    {showReviewModal && (
+      <RequestReviewModal
+        environmentId={environment.id}
+        repository={environment.repository}
+        servingRevision={build?.sourceSha ?? undefined}
+        onClose={() => setShowReviewModal(false)}
+        onSuccess={() => {
+          client.invalidateQueries({ queryKey: ['reviews'] });
+        }}
+      />
+    )}
   </article>;
 }
+

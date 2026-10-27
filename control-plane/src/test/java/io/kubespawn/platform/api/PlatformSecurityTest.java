@@ -23,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class PlatformSecurityTest {
     @Autowired MockMvc mvc;
     @MockitoBean EnvironmentService environments;
+    @MockitoBean io.kubespawn.platform.identity.AuthorizationService authorization;
     private static final String TOKEN = "Bearer test-local-token-with-at-least-32-characters";
 
     @Test

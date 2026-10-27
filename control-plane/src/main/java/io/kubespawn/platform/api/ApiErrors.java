@@ -33,7 +33,7 @@ public class ApiErrors {
         HandlerMethodValidationException.class, MethodArgumentTypeMismatchException.class,
         HttpMessageNotReadableException.class, MissingRequestHeaderException.class})
     ProblemDetail invalid(Exception error, HttpServletRequest request) {
-        String detail = "Check the request fields, required headers, and value formats.";
+        String detail = error.getMessage() != null ? error.getMessage() : "Check the request fields, required headers, and value formats.";
         if (error instanceof MethodArgumentNotValidException invalid) {
             detail = invalid.getBindingResult().getFieldErrors().stream()
                 .map(field -> field.getField() + ": " + field.getDefaultMessage())
@@ -45,3 +45,4 @@ public class ApiErrors {
         return problem;
     }
 }
+

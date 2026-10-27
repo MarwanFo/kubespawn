@@ -39,8 +39,23 @@ public class EnvironmentService {
         return jdbc.query(sql.toString(), (rs, row) -> summary(rs), parameters.toArray());
     }
 
+    @Transactional(readOnly = true)
+    public List<EnvironmentSummary> listForProject(java.util.UUID tenantId, java.util.UUID projectId, int limit, Principal principal) {
+        String sql = """
+            SELECT e.* FROM environments e
+            WHERE e.tenant_id = ? AND e.project_id = ?
+            ORDER BY e.created_at DESC, e.id DESC
+            LIMIT ?
+            """;
+        return jdbc.query(sql, (rs, row) -> summary(rs), tenantId, projectId, limit);
+    }
+
     private EnvironmentSummary summary(ResultSet rs) throws SQLException {
-        return new EnvironmentSummary(rs.getObject("id", java.util.UUID.class), rs.getString("repository_name"),
+        return new EnvironmentSummary(
+            rs.getObject("id", java.util.UUID.class),
+            rs.getObject("tenant_id", java.util.UUID.class),
+            rs.getObject("project_id", java.util.UUID.class),
+            rs.getString("repository_name"),
             rs.getString("namespace"), rs.getString("desired_state"), rs.getString("phase"),
             rs.getString("requested_revision"), rs.getString("serving_revision"),
             rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("expires_at").toInstant(),

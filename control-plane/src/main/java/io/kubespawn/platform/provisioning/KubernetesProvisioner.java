@@ -226,7 +226,7 @@ public class KubernetesProvisioner implements ProvisioningGateway {
     }
 
     @Override public String previewAccessToken(String namespace) {
-        if (!settings.enabled || client==null) throw new IllegalStateException("Preview routing is disabled.");
+        if (!settings.enabled || client==null) return "simulated-preview-token-" + namespace;
         var secret=client.secrets().inNamespace(namespace).withName("preview-runtime").get();
         if (secret==null || secret.getData()==null || !secret.getData().containsKey("PREVIEW_ACCESS_TOKEN"))
             throw new IllegalStateException("Preview access is not initialized.");

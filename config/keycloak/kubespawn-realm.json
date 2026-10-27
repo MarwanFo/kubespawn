@@ -1,0 +1,193 @@
+{
+  "realm": "kubespawn",
+  "enabled": true,
+  "displayName": "KubeSpawn SaaS",
+  "sslRequired": "none",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "verifyEmail": true,
+  "rememberMe": true,
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "auth@kubespawn.local",
+    "fromDisplayName": "KubeSpawn Security",
+    "ssl": "false",
+    "starttls": "false",
+    "auth": "false"
+  },
+  "loginTheme": "kubespawn",
+  "roles": {
+    "realm": [
+      {
+        "name": "DEVELOPER",
+        "description": "Developer persona able to spawn previews and request QA reviews"
+      },
+      {
+        "name": "QA_REVIEWER",
+        "description": "QA Reviewer persona able to validate checklists and record decisions"
+      },
+      {
+        "name": "PORTAL_ADMIN",
+        "description": "Portal Administrator able to manage projects, members, and quotas"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "kubespawn",
+      "name": "KubeSpawn Control Plane & Portal BFF",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "kubespawn-local-oidc-secret-32ch",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/*",
+        "http://127.0.0.1:8080/*",
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:8080/*"
+      }
+    }
+  ],
+  "users": [
+    {
+      "id": "10000000-0000-0000-0000-000000000101",
+      "username": "admin@acme.test",
+      "email": "admin@acme.test",
+      "firstName": "Alice",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "AcmeAdmin123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["PORTAL_ADMIN"]
+    },
+    {
+      "id": "10000000-0000-0000-0000-000000000102",
+      "username": "dev@acme.test",
+      "email": "dev@acme.test",
+      "firstName": "Dave",
+      "lastName": "Developer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "AcmeDev123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["DEVELOPER"]
+    },
+    {
+      "id": "10000000-0000-0000-0000-000000000103",
+      "username": "qa@acme.test",
+      "email": "qa@acme.test",
+      "firstName": "Quinn",
+      "lastName": "Reviewer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "AcmeQA123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["QA_REVIEWER"]
+    },
+    {
+      "id": "10000000-0000-0000-0000-000000000104",
+      "username": "suspended@acme.test",
+      "email": "suspended@acme.test",
+      "firstName": "Sam",
+      "lastName": "Suspended",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "AcmeSuspended123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["DEVELOPER"]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000101",
+      "username": "admin@globex.test",
+      "email": "admin@globex.test",
+      "firstName": "Grace",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "GlobexAdmin123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["PORTAL_ADMIN"]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000102",
+      "username": "dev@globex.test",
+      "email": "dev@globex.test",
+      "firstName": "Dan",
+      "lastName": "Developer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "GlobexDev123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["DEVELOPER"]
+    },
+    {
+      "id": "30000000-0000-0000-0000-000000000101",
+      "username": "newbie@test.test",
+      "email": "newbie@test.test",
+      "firstName": "Ned",
+      "lastName": "Newbie",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Newbie123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": []
+    }
+  ]
+}

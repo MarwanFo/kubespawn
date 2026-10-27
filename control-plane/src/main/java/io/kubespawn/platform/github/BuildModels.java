@@ -16,9 +16,19 @@ public final class BuildModels {
         @NotBlank @Pattern(regexp="ghcr\\.io/[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*") String webImage,
         @NotBlank @Pattern(regexp="[a-f0-9]{40}") String chartRevision,
         @NotBlank @Pattern(regexp="[a-f0-9]{64}") String templateHash) {}
-    public record Repository(long id, long installationId, String name, String branch, long workflowId,
+    public record Repository(long id, UUID tenantId, UUID projectId, long installationId, String name, String branch, long workflowId,
         String workflowPath, String workflowHash, String apiImage, String webImage, String chartRevision,
-        String templateHash, long policyVersion, boolean enabled) {}
+        String templateHash, long policyVersion, boolean enabled) {
+        public Repository(long id, long installationId, String name, String branch, long workflowId,
+                String workflowPath, String workflowHash, String apiImage, String webImage, String chartRevision,
+                String templateHash, long policyVersion, boolean enabled) {
+            this(id, null, null, installationId, name, branch, workflowId, workflowPath, workflowHash, apiImage, webImage, chartRevision, templateHash, policyVersion, enabled);
+        }
+    }
+    public record PolicyUpdate(
+        @NotBlank @Pattern(regexp="[A-Za-z0-9][A-Za-z0-9._/-]{0,254}") String allowedBranch,
+        @NotBlank @Pattern(regexp="\\.github/workflows/[A-Za-z0-9_-]+\\.ya?ml") String workflowPath
+    ) {}
     public record Source(long repositoryId, long installationId, long policyVersion, String sha, UUID buildId) {}
     public record Verified(UUID id, UUID deliveryId, long repositoryId, long policyVersion, String sourceSha,
         long runId, int runAttempt, String workflowRevision, String workflowHash, long artifactId,

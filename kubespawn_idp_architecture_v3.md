@@ -4,6 +4,8 @@
 **Revision date:** 25 October 2026  
 **Baseline:** `kubespawn_idp_architecture_specification.md`, version 2.0
 
+> Current product architecture: [SaaS architecture v4](docs/architecture.md), dated 26 October 2026. This v3 document is retained for its infrastructure and lifecycle contracts. V4 supersedes its initial product scope, human roles, browser/account flows, and delivery order. Use [the full delivery plan](docs/saas-delivery-plan.md) and [the current permissions](docs/security-and-permissions.md) for new work.
+
 This revision defines component ownership, lifecycle behavior, security boundaries, and acceptance criteria. It is an architecture contract, not an implemented or production-certified platform. Numeric limits are initial operating assumptions to validate with the target application.
 
 ## 1. Purpose and scope
@@ -258,6 +260,8 @@ Do not use `0.0.0.0/0:443` as the baseline. NetworkPolicy behavior depends on th
 
 ### 9.1 Human and machine authorization
 
+The following is the historical v3 role model. New work uses `DEVELOPER`, `QA_REVIEWER`, and organization-scoped `PORTAL_ADMIN` as specified in [architecture v4](docs/architecture.md) and [the permission matrix](docs/security-and-permissions.md). Internal service-operator authority is separate. Do not use this legacy table as the new SaaS permission contract.
+
 | Role | Permissions |
 |---|---|
 | Viewer | View authorized environments, readiness, estimates, and permitted logs |
@@ -455,23 +459,9 @@ Run a dependency vulnerability check, rendered Helm/schema validation, policy te
 
 ## 18. Delivery plan and scope gates
 
-### Gate A: lifecycle vertical slice
+The earlier four infrastructure gates are replaced by [the 18-phase SaaS delivery plan](docs/saas-delivery-plan.md). Its order is product/engineering setup, frontend structure, real account access, organization/project authorization, membership/profile administration, GitHub policies, Developer lifecycle, private access, QA reviews, DevOps administration, notifications, entitlements, security verification, quality/recovery, and local release acceptance. External deployment is Phase 17 and remains last.
 
-One trusted repository, local cluster, verified image digests, PostgreSQL intent/jobs, controller-managed Applications, baseline-before-workload ordering, readiness observation, TTL, and confirmed cleanup. Test restart recovery and the self-healing/expiry interaction before building a full portal.
-
-### Gate B: usable internal preview service
-
-OIDC/repository RBAC, private preview access, a small portal, manual requests, bounded TTL extensions, quotas/reservations, audit events, and stable GitHub status updates. Validate authorization and network-denial tests.
-
-### Gate C: operational pilot
-
-Shared wildcard TLS/DNS, production storage/secret integration, backup/restore, alerts, usage estimates, concurrency/load measurements, and runbooks. Pilot with a small team and publish actual timing/cost evidence.
-
-### Gate D: broader service
-
-Only after pilot evidence: additional templates/clusters, stronger tenant isolation, billing reconciliation, optional dynamic secrets, and separately designed untrusted-fork support. Multi-cluster scheduling is outside the initial release even though identity records reserve a cluster field.
-
-A six-week individual effort should target Gates A and B with a constrained demonstration of C. Production readiness is determined by validated gates and operating evidence, not the calendar or number of tools installed.
+Existing lifecycle infrastructure is reusable implementation evidence. It does not complete the account, role, review, tenancy, or SaaS release gates. No six-week production-readiness promise is made; each phase has its own testable exit criteria.
 
 ## 19. Changes from version 2
 

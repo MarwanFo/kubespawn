@@ -16,10 +16,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class PlatformController {
     private final EnvironmentService environments;
     private final Environment configuration;
+    private final io.kubespawn.platform.identity.AuthorizationService authorization;
 
-    public PlatformController(EnvironmentService environments, Environment configuration) {
+    public PlatformController(EnvironmentService environments, Environment configuration,
+            io.kubespawn.platform.identity.AuthorizationService authorization) {
         this.environments = environments;
         this.configuration = configuration;
+        this.authorization = authorization;
     }
 
     @GetMapping("/platform")
@@ -40,6 +43,16 @@ public class PlatformController {
     public EnvironmentPage environments(@RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit,
             Principal principal) {
         return new EnvironmentPage(environments.list(limit, principal));
+    }
+
+    @GetMapping("/tenants/{tenantId}/projects/{projectId}/environments")
+    public EnvironmentPage projectEnvironments(
+            @org.springframework.web.bind.annotation.PathVariable java.util.UUID tenantId,
+            @org.springframework.web.bind.annotation.PathVariable java.util.UUID projectId,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit,
+            Principal principal) {
+        authorization.requireProjectAccess(principal, tenantId, projectId);
+        return new EnvironmentPage(environments.listForProject(tenantId, projectId, limit, principal));
     }
 
     public record PlatformStatus(String name, String version, String mode, boolean controllerEnabled,

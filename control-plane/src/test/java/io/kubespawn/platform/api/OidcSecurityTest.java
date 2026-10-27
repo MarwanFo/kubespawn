@@ -28,6 +28,7 @@ class OidcSecurityTest {
     @Autowired MockMvc mvc;
     @MockitoBean EnvironmentService environments;
     @MockitoBean JwtDecoder decoder;
+    @MockitoBean io.kubespawn.platform.identity.AuthorizationService authorization;
 
     @Test
     void noTokenIsRejected() throws Exception {

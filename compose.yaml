@@ -22,11 +22,17 @@ services:
     build:
       context: ./control-plane
     environment:
-      SPRING_PROFILES_ACTIVE: local
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
       DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-kubespawn}
       DATABASE_USER: ${POSTGRES_USER:-kubespawn}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/setup.ps1 first}
       KUBESPAWN_DEV_TOKEN: ${KUBESPAWN_DEV_TOKEN:?Run scripts/setup.ps1 first}
+      OIDC_ISSUER_URI: ${OIDC_ISSUER_URI:-http://keycloak:8080/realms/kubespawn}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-kubespawn}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-kubespawn-local-oidc-secret-32ch}
+      COOKIE_SECURE: "false"
+      MAILPIT_API_URL: http://mailpit:8025/api/v1/send
+      PORTAL_BASE_URL: http://localhost:5173
     ports:
       - "127.0.0.1:${API_PORT:-8080}:8080"
     depends_on:
@@ -50,6 +56,40 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-kubespawn}
+      KC_DB_SCHEMA: keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-kubespawn}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/setup.ps1 first}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    volumes:
+      - ./config/keycloak:/opt/keycloak/data/import:ro
+      - ./config/keycloak-theme:/opt/keycloak/themes/kubespawn:ro
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.22
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_WEB_PORT:-8025}:8025"
     restart: unless-stopped
 
 volumes:

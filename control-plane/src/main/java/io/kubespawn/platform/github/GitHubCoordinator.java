@@ -29,9 +29,13 @@ public class GitHubCoordinator {
 
     // Network work deliberately occurs outside lifecycle/worker persistence transactions.
     public Repository enroll(Enrollment value,String actor) {
+        return enroll(null, null, value, actor);
+    }
+
+    public Repository enroll(UUID tenantId, UUID projectId, Enrollment value, String actor) {
         if (!configured()) throw new LifecycleException(HttpStatus.SERVICE_UNAVAILABLE,"GITHUB_SETUP_REQUIRED","Configure the GitHub App before enrolling a repository.");
         if (value.apiImage().equals(value.webImage())) throw new LifecycleException(HttpStatus.BAD_REQUEST,"INVALID_IMAGES","API and web images must have distinct repository names.");
-        Repository proposed=new Repository(value.repositoryId(),value.installationId(),value.repository().toLowerCase(Locale.ROOT),
+        Repository proposed=new Repository(value.repositoryId(),tenantId,projectId,value.installationId(),value.repository().toLowerCase(Locale.ROOT),
             value.branch(),1,value.workflowPath(),value.workflowSha256(),value.apiImage(),value.webImage(),value.chartRevision(),value.templateHash(),1,true);
         JsonNode repo=github.get(proposed,"/repos/"+proposed.name());
         require(repo.path("id").asLong()==proposed.id() && repo.path("full_name").asText().equalsIgnoreCase(proposed.name()),"REPOSITORY_ID_MISMATCH");
@@ -44,7 +48,7 @@ public class GitHubCoordinator {
         require(workflow.path("id").asLong()>0,"WORKFLOW_ID_MISSING");
         JsonNode chart=github.get(proposed,"/repos/"+proposed.name()+"/commits/"+value.chartRevision());
         require(chart.path("sha").asText().equals(value.chartRevision()),"CHART_REVISION_MISMATCH");
-        return store.enroll(value,workflow.path("id").asLong(),actor);
+        return store.enroll(tenantId,projectId,value,workflow.path("id").asLong(),actor);
     }
 
     public JobProcessor.Decision reconcile(JobLease job,JobProcessor.Intent intent) {

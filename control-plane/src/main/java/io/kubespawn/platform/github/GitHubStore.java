@@ -26,25 +26,73 @@ public class GitHubStore {
     }
     public List<Repository> repositories() { return jdbc.query("SELECT * FROM github_repositories ORDER BY full_name", this::mapRepository); }
 
+    public List<Repository> projectRepositories(UUID tenantId, UUID projectId) {
+        return jdbc.query("SELECT * FROM github_repositories WHERE tenant_id=? AND project_id=? ORDER BY full_name",
+            this::mapRepository, tenantId, projectId);
+    }
+    public Optional<Repository> projectRepository(UUID tenantId, UUID projectId, long repositoryId) {
+        return jdbc.query("SELECT * FROM github_repositories WHERE tenant_id=? AND project_id=? AND repository_id=?",
+            this::mapRepository, tenantId, projectId, repositoryId).stream().findFirst();
+    }
+
     @Transactional
     public Repository enroll(Enrollment value, long workflowId, String actor) {
+        return enroll(null, null, value, workflowId, actor);
+    }
+
+    @Transactional
+    public Repository enroll(UUID tenantId, UUID projectId, Enrollment value, long workflowId, String actor) {
         jdbc.update("""
-            INSERT INTO github_repositories(repository_id, installation_id, full_name, allowed_branch, workflow_id,
+            INSERT INTO github_repositories(repository_id, tenant_id, project_id, installation_id, full_name, allowed_branch, workflow_id,
                 workflow_path, workflow_sha256, api_image, web_image, chart_revision, template_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(repository_id) DO UPDATE SET installation_id=excluded.installation_id, full_name=excluded.full_name,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(repository_id) DO UPDATE SET tenant_id=COALESCE(excluded.tenant_id, github_repositories.tenant_id),
+                project_id=COALESCE(excluded.project_id, github_repositories.project_id),
+                installation_id=excluded.installation_id, full_name=excluded.full_name,
                 allowed_branch=excluded.allowed_branch, workflow_id=excluded.workflow_id, workflow_path=excluded.workflow_path,
                 workflow_sha256=excluded.workflow_sha256, api_image=excluded.api_image, web_image=excluded.web_image,
                 chart_revision=excluded.chart_revision, template_hash=excluded.template_hash, enabled=true,
                 policy_version=github_repositories.policy_version+1, updated_at=clock_timestamp()
-            """, value.repositoryId(), value.installationId(), value.repository().toLowerCase(java.util.Locale.ROOT),
+            """, value.repositoryId(), tenantId, projectId, value.installationId(), value.repository().toLowerCase(java.util.Locale.ROOT),
             value.branch(), workflowId, value.workflowPath(), value.workflowSha256(), value.apiImage(), value.webImage(),
             value.chartRevision(), value.templateHash());
         jdbc.update("""
             INSERT INTO audit_events(id, actor, action, request_id, details)
-            VALUES (?, ?, 'GITHUB_REPOSITORY_ENROLLED', ?, jsonb_build_object('repositoryId', ?::bigint))
-            """, UUID.randomUUID(), actor, UUID.randomUUID().toString(), value.repositoryId());
+            VALUES (?, ?, 'GITHUB_REPOSITORY_ENROLLED', ?, jsonb_build_object('repositoryId', ?::bigint, 'tenantId', ?::uuid, 'projectId', ?::uuid))
+            """, UUID.randomUUID(), actor, UUID.randomUUID().toString(), value.repositoryId(), tenantId, projectId);
         return repository(value.repositoryId()).orElseThrow();
+    }
+
+    @Transactional
+    public Repository updatePolicy(UUID tenantId, UUID projectId, long repositoryId, String allowedBranch, String workflowPath, String actor) {
+        int updated = jdbc.update("""
+            UPDATE github_repositories
+            SET allowed_branch=?, workflow_path=?, policy_version=policy_version+1, updated_at=clock_timestamp()
+            WHERE tenant_id=? AND project_id=? AND repository_id=? AND enabled
+            """, allowedBranch, workflowPath, tenantId, projectId, repositoryId);
+        if (updated == 0) {
+            throw new LifecycleException(HttpStatus.NOT_FOUND, "REPOSITORY_NOT_FOUND", "Project repository not found or disabled.");
+        }
+        jdbc.update("""
+            INSERT INTO audit_events(id, actor, action, request_id, details)
+            VALUES (?, ?, 'GITHUB_POLICY_UPDATED', ?, jsonb_build_object('repositoryId', ?::bigint, 'tenantId', ?::uuid, 'projectId', ?::uuid, 'allowedBranch', ?::text))
+            """, UUID.randomUUID(), actor, UUID.randomUUID().toString(), repositoryId, tenantId, projectId, allowedBranch);
+        return repository(repositoryId).orElseThrow();
+    }
+
+    @Transactional
+    public void disableProjectRepository(UUID tenantId, UUID projectId, long repositoryId, String actor) {
+        int updated = jdbc.update("""
+            UPDATE github_repositories SET enabled=false, updated_at=clock_timestamp()
+            WHERE tenant_id=? AND project_id=? AND repository_id=?
+            """, tenantId, projectId, repositoryId);
+        if (updated == 0) {
+            throw new LifecycleException(HttpStatus.NOT_FOUND, "REPOSITORY_NOT_FOUND", "Project repository not found.");
+        }
+        jdbc.update("""
+            INSERT INTO audit_events(id, actor, action, request_id, details)
+            VALUES (?, ?, 'GITHUB_REPOSITORY_REMOVED', ?, jsonb_build_object('repositoryId', ?::bigint, 'tenantId', ?::uuid, 'projectId', ?::uuid))
+            """, UUID.randomUUID(), actor, UUID.randomUUID().toString(), repositoryId, tenantId, projectId);
     }
 
     @Transactional
@@ -206,7 +254,10 @@ public class GitHubStore {
         return jdbc.queryForObject("SELECT id FROM jobs WHERE deduplication_key=?",UUID.class,key);
     }
     private Repository mapRepository(ResultSet rs,int row) throws SQLException {
-        return new Repository(rs.getLong("repository_id"),rs.getLong("installation_id"),rs.getString("full_name"),
+        return new Repository(rs.getLong("repository_id"),
+            rs.getObject("tenant_id", UUID.class),
+            rs.getObject("project_id", UUID.class),
+            rs.getLong("installation_id"),rs.getString("full_name"),
             rs.getString("allowed_branch"),rs.getLong("workflow_id"),rs.getString("workflow_path"),rs.getString("workflow_sha256"),
             rs.getString("api_image"),rs.getString("web_image"),rs.getString("chart_revision"),rs.getString("template_hash"),
             rs.getLong("policy_version"),rs.getBoolean("enabled"));

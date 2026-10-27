@@ -82,7 +82,10 @@ public class ProvisioningStore {
                 UPDATE environments SET phase='DESTROYED',destroyed_at=clock_timestamp(),updated_at=clock_timestamp()
                 WHERE id=? AND desired_state='ABSENT' AND destroyed_at IS NULL
                 """,lease.environmentId());
-            if (changed>0) event(lease,"CLEANUP_CONFIRMED");
+            if (changed>0) {
+                event(lease,"CLEANUP_CONFIRMED");
+                closeUsageInterval(lease.environmentId());
+            }
         } else if (cleanup) {
             jdbc.update("UPDATE environment_provisioning SET reserved=true WHERE environment_id=?",lease.environmentId());
             jdbc.update("UPDATE environments SET phase='TERMINATING',destroyed_at=NULL,updated_at=clock_timestamp() WHERE id=? AND desired_state='ABSENT'",lease.environmentId());
@@ -128,5 +131,23 @@ public class ProvisioningStore {
             WHERE id=? AND owner_actor=? AND desired_state='ACTIVE' AND phase='READY' AND expires_at>clock_timestamp()
             """,(rs,row)->new Preview(rs.getString(1),rs.getTimestamp(2).toInstant()),environment,actor).stream().findFirst()
             .orElseThrow(()->new LifecycleException(HttpStatus.CONFLICT,"PREVIEW_NOT_READY","Preview is not ready."));
+    }
+
+    private void closeUsageInterval(UUID environmentId) {
+        try {
+            jdbc.update("""
+                UPDATE usage_intervals
+                SET ended_at = clock_timestamp(),
+                    duration_seconds = GREATEST(0, EXTRACT(EPOCH FROM (clock_timestamp() - started_at))::bigint),
+                    core_hours = ROUND((cpu_millicores::numeric / 1000.0) * (GREATEST(0, EXTRACT(EPOCH FROM (clock_timestamp() - started_at))) / 3600.0), 4),
+                    memory_gb_hours = ROUND((memory_mb::numeric / 1024.0) * (GREATEST(0, EXTRACT(EPOCH FROM (clock_timestamp() - started_at))) / 3600.0), 4),
+                    estimated_cost_cents = ROUND(
+                        ((ROUND((cpu_millicores::numeric / 1000.0) * (GREATEST(0, EXTRACT(EPOCH FROM (clock_timestamp() - started_at))) / 3600.0), 4) * 4.0) +
+                         (ROUND((memory_mb::numeric / 1024.0) * (GREATEST(0, EXTRACT(EPOCH FROM (clock_timestamp() - started_at))) / 3600.0), 4) * 0.8))
+                    )::int,
+                    status = 'CLOSED'
+                WHERE environment_id = ? AND status = 'ACTIVE'
+            """, environmentId);
+        } catch (Exception ignored) {}
     }
 }

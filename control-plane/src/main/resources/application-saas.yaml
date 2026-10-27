@@ -1,15 +1,19 @@
 spring:
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never
   security:
     oauth2:
       client:
         provider:
           kubespawn:
-            issuer-uri: ${OIDC_ISSUER_URI}
+            issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8081/realms/kubespawn}
         registration:
           kubespawn:
             provider: kubespawn
-            client-id: ${OIDC_CLIENT_ID}
-            client-secret: ${OIDC_CLIENT_SECRET}
+            client-id: ${OIDC_CLIENT_ID:kubespawn}
+            client-secret: ${OIDC_CLIENT_SECRET:kubespawn-local-oidc-secret-32ch}
             authorization-grant-type: authorization_code
             scope: openid,profile,email
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
@@ -20,8 +24,8 @@ server:
       cookie:
         name: KUBESPAWN_SESSION
         http-only: true
-        secure: true
-        same-site: strict
+        secure: ${COOKIE_SECURE:false}
+        same-site: lax
       timeout: 8h
 
 kubespawn:

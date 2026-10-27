@@ -67,9 +67,11 @@ public class SecurityConfig {
         http.csrf(value -> value.csrfTokenRepository(csrf))
             .sessionManagement(session -> session.sessionFixation(fixation -> fixation.migrateSession()))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health", "/actuator/health/**", "/oauth2/**", "/login/**").permitAll()
+                .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
+                .requestMatchers("/error", "/actuator/health", "/actuator/health/**", "/oauth2/**", "/login/**", "/api/v1/billing/events").permitAll()
                 .requestMatchers("/api/v1/**").authenticated()
                 .anyRequest().authenticated())
+
             .oauth2Login(Customizer.withDefaults())
             .logout(logout -> logout.logoutSuccessUrl("/"))
             .exceptionHandling(errors -> errors
@@ -98,10 +100,12 @@ public class SecurityConfig {
         http.csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
+                .requestMatchers("/error", "/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/**").hasAuthority("SCOPE_environments:read")
                 .requestMatchers("/api/v1/**").hasAuthority("LOCAL_LIFECYCLE_WRITE")
                 .anyRequest().authenticated())
+
             .exceptionHandling(errors -> errors.authenticationEntryPoint(
                 (request, response, exception) -> response.sendError(401)));
     }
@@ -129,6 +133,7 @@ public class SecurityConfig {
                     List.of(new SimpleGrantedAuthority("SCOPE_environments:read"),
                         new SimpleGrantedAuthority("LOCAL_LIFECYCLE_WRITE"),
                         new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN"),
+                        new SimpleGrantedAuthority("ROLE_PORTAL_ADMIN"),
                         new SimpleGrantedAuthority("ROLE_TENANT_ADMIN")));
                 var context = SecurityContextHolder.createEmptyContext();
                 context.setAuthentication(authentication);
